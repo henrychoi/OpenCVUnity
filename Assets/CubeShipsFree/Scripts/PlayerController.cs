@@ -62,6 +62,11 @@ namespace CubeSpaceFree
 			started = true;
         }
 
+		Vector3 acc = new Vector3();
+		void OnDrawGizmos(){
+			Debug.DrawRay(r, acc, Color.blue, 0.01f, false);
+		}
+
         void FixedUpdate()
         {
 			#if KEYBOARD_MOUSE_INPUT
@@ -110,6 +115,9 @@ namespace CubeSpaceFree
             );
             myRigidbody.rotation = Quaternion.Euler(0, 0, myRigidbody.velocity.x * -tilt);
 			#else
+			acc = Input.acceleration;
+			//Debug.Log("acc = " + acc);
+
 			//Debug.Log("Moving to " + this.r);
 			myRigidbody.MovePosition(r); myRigidbody.MoveRotation(q);
 			//myRigidbody.position = r; myRigidbody.rotation = q;
