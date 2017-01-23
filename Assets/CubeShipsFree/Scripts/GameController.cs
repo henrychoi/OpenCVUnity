@@ -25,7 +25,7 @@ namespace CubeSpaceFree
             score = 0;
             restartButton.gameObject.SetActive(false);
             gameOverText.gameObject.SetActive(false);
-            StartCoroutine(SpawnWaves()); //[Henry] going to INS based control
+            //StartCoroutine(SpawnWaves()); //[Henry] going to INS based control
             UpdateScore();
         }
 
