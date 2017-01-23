@@ -25,7 +25,7 @@ namespace CubeSpaceFree
             score = 0;
             restartButton.gameObject.SetActive(false);
             gameOverText.gameObject.SetActive(false);
-            //StartCoroutine(SpawnWaves()); //[Henry] going to INS based control
+            StartCoroutine(SpawnWaves()); //[Henry] going to INS based control
             UpdateScore();
         }
 
@@ -58,7 +58,8 @@ namespace CubeSpaceFree
                     GameObject hazard = hazards[Random.Range(0, hazards.Length)];
                     for (int j = 0; j < itemPerHazardCount; j++)
                     {
-                        Vector3 spawnPosition = new Vector3(Random.Range(-spawnValues.x, spawnValues.x), spawnValues.y, spawnValues.z);
+                        Vector3 spawnPosition = new Vector3(Random.Range(-spawnValues.x, spawnValues.x)
+							, spawnValues.y, spawnValues.z);
                         Quaternion spawnRotation = Quaternion.identity;
                         Instantiate(hazard, spawnPosition, spawnRotation);
                         yield return new WaitForSeconds(spawnWait);

@@ -5,7 +5,7 @@ namespace CubeSpaceFree
 {
     public class Mover : MonoBehaviour
     {
-
+		#if MOVE_ENEMY
         public float speed;
 
         // Use this for initialization
@@ -19,5 +19,6 @@ namespace CubeSpaceFree
         {
 
         }
+		#endif
     }
 }

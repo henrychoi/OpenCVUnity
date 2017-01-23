@@ -36,7 +36,7 @@ namespace CubeSpaceFree
                 yield return new WaitForSeconds(Random.Range(manouverWait.x, manouverWait.y));
             }
         }
-
+		#if MOVE_ENEMY
         // Update is called once per frame
         void FixedUpdate()
         {
@@ -51,5 +51,6 @@ namespace CubeSpaceFree
 
             myRigidbody.rotation = Quaternion.Euler(0, 0, myRigidbody.velocity.x * -tilt);
         }
+		#endif
     }
 }
