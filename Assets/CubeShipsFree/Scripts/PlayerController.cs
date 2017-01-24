@@ -1,5 +1,7 @@
 ﻿using UnityEngine;
 using System.Collections;
+using System.Collections.Generic;
+using System;
 
 // Heavily based on Unity Space Shooter tutorial
 namespace CubeSpaceFree
@@ -11,19 +13,66 @@ namespace CubeSpaceFree
         public float xMin, xMax, zMin, zMax;
     }
 
+	public class Vector3Window {
+		Queue<Vector3> q1, q2;
+		Vector3 average = new Vector3(), variance = new Vector3(), stddev = new Vector3();
+		public Vector3 Average { get { return average; } }
+		public Vector3 Variance { get { return variance; } }
+		public Vector3 StdDev { get { return stddev; } }
+		int size;
+		public int Size { get { return size; } }
+		float sizeinv;
+		public bool Valid { get { return q1.Count == size; } }
+
+		public Vector3Window(int sz) {
+			q1 = new Queue<Vector3> (sz);
+			q2 = new Queue<Vector3> (sz);
+			size = sz;
+			sizeinv = 1.0f / size;
+		}
+		public void Add(Vector3 v) {
+			if (q1.Count >= size) { // full, so have to evict the earliest
+				Vector3 head = q1.Dequeue();
+				average -= head;
+				head = q2.Dequeue ();
+				variance -= head;
+			}
+
+			Vector3 scaled = v * sizeinv;
+			q1.Enqueue (scaled);
+			average += scaled; // simple accumulation
+
+			// Running variance
+			scaled.x *= scaled.x; scaled.y *= scaled.y; scaled.z *= scaled.z;
+			variance += scaled;
+			q2.Enqueue (scaled);
+
+			stddev.x = Mathf.Sqrt (variance.x);
+			stddev.y = Mathf.Sqrt (variance.y);
+			stddev.z = Mathf.Sqrt (variance.z);
+		}
+	}
+
     public class PlayerController : MonoBehaviour
     {
-	//Movement control
+		#region MOVEMENT CONTROL
         //public float speed, tilt;              // tilt factor
         //public Boundary boundary;       // movememnt boundary
 		//public float smoothing = 5;     // this value is used for smoothing movement
 		//private Vector3 smoothDirection;// used to smooth out mouse and touch control
-		public Rigidbody myRigidbody;   // reference to rigitbody
+		public Rigidbody myRigidbody;//Necessary for physics; will the player be subject to physics?
+		#endregion
 
         public GameObject shot;         // bullet prefab
         public Transform shotSpawn;     // the turret (bullet spawn location)
         public float fireRate = 0.5f;   
         private float nextFire = 0.0f;
+
+		#region sensor stats
+		//Vector3 a = new Vector3(), w = new Vector3();
+		Vector3Window a_ens = new Vector3Window (25); // 0.5 sec accel window
+		Vector3Window w_ens = new Vector3Window (25); // 0.5 sec gyro window
+		#endregion
 
 		bool started = false;
 		public bool Started { get { return started; } }
@@ -48,27 +97,38 @@ namespace CubeSpaceFree
 		}
 
 		// Need a handle to the PiP camera transform, to unrotate it back to inertial frame
-		public Camera pipCamera;
-		Vector3 pipCamOffset;
+		public Camera attitudeCam, positionCam;//These are connected to this class in the inspector
+		Vector3 attitudeCamOffset, positionCamOffset;
 
         // Use this for initialization
         void Start()
-        {
-			Transform pipXform = pipCamera.transform;
-			//Debug.Log ("PiP position = " + pipXform.position);
-			pipCamOffset = pipXform.position;
+		{
+			Input.compensateSensors = false;
+			//Would like 100 Hz, but accel is ticking at 50 Hz anyway; consider increasing later
+			//if I need to update the attitude more frequently than integrating the acceleration.
+			Input.gyro.updateInterval = 0.02f;
 
-            myRigidbody = GetComponent<Rigidbody>();//
+			attitudeCamOffset = attitudeCam.transform.position;
+			positionCamOffset = positionCam.transform.position;
+
+            myRigidbody = GetComponent<Rigidbody>();
+
 			started = true;
         }
 
-		Vector3 acc = new Vector3();
-		void OnDrawGizmos(){
-			Debug.DrawRay(r, acc, Color.blue, 0.01f, false);
-		}
+
+		//Vector3 origin = new Vector3();
+		//void OnDrawGizmos() { //This IS called, but I just did not see the ray
+		//	Debug.Log ("I am here");
+		//	Debug.DrawRay(r, a, Color.yellow, 1.0f, false);
+			//Ray ray = new Ray {}
+			//Gizmos.DrawLine(origin, new Vector3 {x=1, y=0, z=0});
+		//}
 
         void FixedUpdate()
         {
+			//Debug.Log("dT = " + Time.deltaTime);
+
 			#if KEYBOARD_MOUSE_INPUT
             // keyboard
             float moveHorizontal = Input.GetAxis("Horizontal");
@@ -114,14 +174,25 @@ namespace CubeSpaceFree
                 Mathf.Clamp(transform.position.z, boundary.zMin, boundary.zMax)
             );
             myRigidbody.rotation = Quaternion.Euler(0, 0, myRigidbody.velocity.x * -tilt);
+
 			#else
-			acc = Input.acceleration;
-			//Debug.Log("acc = " + acc);
+			//not sure if this is compensated, but still estimate bias
+			a_ens.Add(Input.acceleration);
+			//Debug.Log(String.Format("acc = ({0:F},{1:F},{2:F})", acc.x, acc.y, acc.z));
+
+			//I will do further bias estimation using the compensated gyro values
+			w_ens.Add(Input.gyro.rotationRateUnbiased);
+
+			//Just use 6-axis for now
+			//float heading = Input.compass.magneticHeading;//[deg]
 
 			//Debug.Log("Moving to " + this.r);
 			myRigidbody.MovePosition(r); myRigidbody.MoveRotation(q);
 			//myRigidbody.position = r; myRigidbody.rotation = q;
-			pipCamera.transform.position = this.r + pipCamOffset;
+
+			//Move the chase cameras (shown in PiP) with the player
+			attitudeCam.transform.position = this.r + attitudeCamOffset;
+			positionCam.transform.position = this.r + positionCamOffset;
 			#endif
         }
 
