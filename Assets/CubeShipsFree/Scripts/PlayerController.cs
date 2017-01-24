@@ -80,6 +80,7 @@ namespace CubeSpaceFree
 		//The current position and rotation of the player
 		Vector3 r = new Vector3();//Unity’s default unit scale is 1 unit = 1 meter
 		Quaternion q = new Quaternion {x=0, y=0, z=0, w=1};
+		Vector3Window r_ens = new Vector3Window (25); // 0.5 sec accel window// low passed position
 
 		void NormalizeRotQ(ref Quaternion q) {
 			float l2inv = 1.0f/Mathf.Sqrt (q.x*q.x + q.y*q.y + q.z*q.z + q.w*q.w);
@@ -190,9 +191,11 @@ namespace CubeSpaceFree
 			myRigidbody.MovePosition(r); myRigidbody.MoveRotation(q);
 			//myRigidbody.position = r; myRigidbody.rotation = q;
 
+			r_ens.Add(r);
+
 			//Move the chase cameras (shown in PiP) with the player
-			attitudeCam.transform.position = this.r + attitudeCamOffset;
-			positionCam.transform.position = this.r + positionCamOffset;
+			attitudeCam.transform.position = r + attitudeCamOffset;
+			positionCam.transform.position = r_ens.Average + positionCamOffset;
 			#endif
         }
 
