@@ -42,8 +42,8 @@ namespace CubeSpaceFree
 			q1.Enqueue (scaled);
 			average += scaled; // simple accumulation
 
-			// Running variance
-			scaled.x *= scaled.x; scaled.y *= scaled.y; scaled.z *= scaled.z;
+			// Running variance += (x[[k]/size) * x[k]
+			scaled.x *= v.x; scaled.y *= v.y; scaled.z *= v.z;
 			variance += scaled;
 			q2.Enqueue (scaled);
 

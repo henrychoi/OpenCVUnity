@@ -23,7 +23,7 @@ namespace CubeSpaceFree
         void Start()
         {
             score = 0;
-            restartButton.gameObject.SetActive(false);
+            restartButton.gameObject.SetActive(true);
             gameOverText.gameObject.SetActive(false);
             //StartCoroutine(SpawnWaves()); //[Henry] going to INS based control
             UpdateScore();
