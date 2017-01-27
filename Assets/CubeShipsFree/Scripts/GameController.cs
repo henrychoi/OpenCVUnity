@@ -15,7 +15,7 @@ namespace CubeSpaceFree
 
         public Text scoreText;
         public Button restartButton;
-        public Text gameOverText;
+        public Text statusText;
         public bool isGameOver = false;
         public int score;
 
@@ -24,7 +24,7 @@ namespace CubeSpaceFree
         {
             score = 0;
             restartButton.gameObject.SetActive(true);
-            gameOverText.gameObject.SetActive(false);
+            //statusText.gameObject.SetActive(false);
             //StartCoroutine(SpawnWaves()); //[Henry] going to INS based control
             UpdateScore();
         }
@@ -94,7 +94,6 @@ namespace CubeSpaceFree
         public void GameOver()
         {
             restartButton.gameObject.SetActive(true);
-            gameOverText.gameObject.SetActive(true);
         }
     }
 }

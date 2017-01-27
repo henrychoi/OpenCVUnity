@@ -6,7 +6,7 @@ namespace CubeSpaceFree
     public class WeaponController : MonoBehaviour
     {
         public GameObject shot;
-        public Transform shotSpawn;
+        public Transform turret_form;
         public float fireRate;
         public float delay;
 
@@ -21,7 +21,7 @@ namespace CubeSpaceFree
 
         void Fire()
         {
-            Instantiate(shot, shotSpawn.position, shotSpawn.rotation);
+            Instantiate(shot, turret_form.position, turret_form.rotation);
             audioSource.Play();
         }
 
