@@ -1,6 +1,4 @@
 ﻿using UnityEngine;
-using System.Collections;
-using System.Collections.Generic;
 using System;
 using UnityEngine.Assertions;
 using UnityEngine.UI;
@@ -14,58 +12,6 @@ namespace CubeSpaceFree
     {
         public float xMin, xMax, zMin, zMax;
     }
-
-	public class Vector3Window {
-		Queue<Vector3> q1, q2;
-		Vector3 m1 = new Vector3()
-			, m2 = new Vector3()
-			, variance = new Vector3(), stddev = new Vector3();
-		public Vector3 Average { get { return m1; } }
-		public Vector3 Variance { get { return m2; } }
-		public Vector3 StdDev { get { return stddev; } }
-		int size;
-		public int Size { get { return size; } }
-		float sizeinv;
-		public bool Valid { get { return q1.Count == size; } }
-		string debugStr;
-
-		public Vector3Window(int sz, string name) {
-			q1 = new Queue<Vector3> (sz);
-			q2 = new Queue<Vector3> (sz);
-			size = sz;
-			sizeinv = 1.0f / size;
-			this.debugStr = name;
-		}
-		public void Add(Vector3 v) {
-			if (q1.Count >= size) { // full, so have to evict the earliest
-				Vector3 head = q1.Dequeue();
-				m1 -= head;
-				head = q2.Dequeue ();
-				m2 -= head;
-			}
-
-			Vector3 scaled1 = v * sizeinv;
-			q1.Enqueue (scaled1);
-			m1 += scaled1; // simple accumulation
-
-			// Running average variance += (x[[k]/size) * x[k] - mean^2
-			Vector3 scaled2 = scaled1;
-			scaled2.x *= v.x; scaled2.y *= v.y; scaled2.z *= v.z;
-			q2.Enqueue (scaled2);
-			m2 += scaled2;
-
-			variance.Set(Mathf.Max(m2.x - m1.x * m1.x, 0)
-				, Mathf.Max(m2.y - m1.y * m1.y, 0)
-				, Mathf.Max(m2.z - m1.z * m1.z, 0));
-
-			stddev.x = Mathf.Sqrt (variance.x);
-			stddev.y = Mathf.Sqrt (variance.y);
-			stddev.z = Mathf.Sqrt (variance.z);
-
-			if (debugStr != null)
-				Debug.Log (String.Format ("{0} {1}/{2} <- {3}: {4}", debugStr, m1, m2, v, variance));
-		}
-	}
 
     public class PlayerController : MonoBehaviour
     {
@@ -93,18 +39,18 @@ namespace CubeSpaceFree
         // float nextFire = 0.0f;
 
 		// Changed in Unity editor Edit -> Project Settings -> Time -> Fixed Timestep
-		const int F_fixed_update = 100;//default is 50
-
-		// physics is in world scale; 
-		const int Scale_w2game = 100;
+		const int F_fixed_update = 50;//default is 50
+		const float Ts = 1.0f / F_fixed_update;
 
 		#region sensor stats
 		Vector3 w_bias = new Vector3(); //gyro bias
-		Vector3Window a_ens//Specific acc INCLUDES gravity (i.e. REACTION to gravity NOT subtracted)
-			= new Vector3Window ((int)(1.0f * F_fixed_update), null) // accel [g] window
-			, w_ens = new Vector3Window ((int)(1.0f * F_fixed_update), null)// gyro [dps] window
+
+		// accel specific gravity [g] window;
+		//Specific acc INCLUDES gravity (i.e. REACTION to gravity NOT subtracted)
+		Vector3Window a_inb_lb_ens = new Vector3Window ((int)(1.0f * F_fixed_update), null);//"acc");
+		// gyro [dps] window
+		Vector3Window w_inb_lb_ens = new Vector3Window ((int)(1.0f * F_fixed_update), null);
 			//, m_ens = new Vector3Window (0.5 * F_fixed_update) // magnetic [uT] field window
-			;
 		#endregion
 
 		bool started = false;
@@ -113,34 +59,49 @@ namespace CubeSpaceFree
 		public Text statusText;
 
 
-		//The current position and rotation of the player
-		Vector3 r = new Vector3();//Unity’s default unit scale is 1 unit = 1 meter
-		Quaternion q = new Quaternion {x=0, y=0, z=0, w=1};
-		Vector3Window r_ens = new Vector3Window ((int)(0.5f * F_fixed_update), null); 
+		//The current position and rotation of the player in local tangtent frame (l)
+		Vector3 r_inl_lb = new Vector3()
+			, r_inU_lb  = new Vector3(); //same vector but scaled and rotated from physics to Unity
+		Vector3Window r_inl_lb_ens = new Vector3Window (F_fixed_update, null); 
 
-		void NormalizeRotQ(ref Quaternion q) {
-			float l2inv = 1.0f/Mathf.Sqrt (q.x*q.x + q.y*q.y + q.z*q.z + q.w*q.w);
-			q.x *= l2inv;
-			q.y *= l2inv;
-			q.z *= l2inv;
-			q.w *= l2inv;
-		}
+		static Quaternion Q_lb = new Quaternion (0, 0, Mathf.Sin (Mathf.PI / 4), Mathf.Cos (Mathf.PI / 4))
+		                         * new Quaternion (Mathf.Sin (Mathf.PI / 4), 0, 0, Mathf.Cos (Mathf.PI / 4))
+			//, Q2_lb = new Quaternion (0, Mathf.Sin (-Mathf.PI / 4), 0, Mathf.Cos (-Mathf.PI / 4))
+			//	* new Quaternion (Mathf.Sin (Mathf.PI / 2), 0, 0, Mathf.Cos (Mathf.PI / 2))
+			;
+		Quaternion q_lb = Q_lb
+			, q_Ub = Quaternion.identity
+			, q_inc_lb = Quaternion.identity
+		;
+
+		static Quaternion Q_Ul = //Will be used often, so calculate once
+			new Quaternion(0, Mathf.Sin(-Mathf.PI/4), 0, Mathf.Cos(-Mathf.PI/4))
+			* new Quaternion(Mathf.Sin(-Mathf.PI/4), 0, 0, Mathf.Cos(-Mathf.PI/4))
+			;
 
 		public void VisualUpdate(Vector3 dr, Quaternion dtheta) {
-			//Debug.Log ("visual update dr = " + dr);
-			r += dr * Scale_w2game;
-			q *= dtheta;
-			NormalizeRotQ (ref q);
+			//Cutting the tie from visual odometry (not that optical flow is visual odometry)
+//			r += dr * Scale_w2game;
+//			q *= dtheta;
+//			Rternion.Normalize (ref q);
 		}
 
 		// Need a handle to the PiP camera transform, to unrotate it back to inertial frame
 		public Camera attitudeCam, positionCam;//These are connected to this class in the inspector
 		Vector3 attitudeCamOffset, positionCamOffset;
+		bool yIsUp = true;//alternative is up
 
-        // Use this for initialization
+		// Use this for initialization
         void Start()
 		{
-			Input.compensateSensors = false;
+			//Debug.Log ("platform =" + Application.platform);
+			if (Application.platform == RuntimePlatform.OSXEditor
+			    || Application.platform == RuntimePlatform.WindowsEditor) {
+				yIsUp = true;
+				Debug.Log ("Using Unity Remote");
+			}
+
+			Input.compensateSensors = true;
 
 			//Must be faster or equal rate than FixedUpdate interval
 			Input.gyro.updateInterval = 1.0f/F_fixed_update;
@@ -171,7 +132,9 @@ namespace CubeSpaceFree
 			//Ray ray = new Ray {}
 			//Gizmos.DrawLine(origin, new Vector3 {x=1, y=0, z=0});
 		//}
-	    const float HALF_PI = 0.5f * Mathf.PI;
+	    //const float HALF_PI = 0.5f * Mathf.PI;
+	    //int case_num = 0;
+
 		public void Reset()
 		{
 			//statusText.text = "Please hold still";
@@ -179,68 +142,132 @@ namespace CubeSpaceFree
 			nZVU = 0;
 			state = State.Resetting;
 		}
-
+	
         void FixedUpdate()
         {   //Debug.Log("dT = " + Time.deltaTime);
 
 			//not sure if this is compensated, but still estimate bias
-			a_ens.Add(Input.acceleration);
+			a_inb_lb_ens.Add(Input.acceleration);
 			//Debug.Log(String.Format("acc = ({0:F},{1:F},{2:F})", acc.x, acc.y, acc.z));
 
 			//I will do further bias estimation using the compensated gyro values
-			w_ens.Add(Input.gyro.rotationRateUnbiased);
+			w_inb_lb_ens.Add(Input.gyro.rotationRateUnbiased);
 
 			//m_ens.Add(Input.compass.rawVector);
 			//float heading = Input.compass.magneticHeading;//[deg]
-
 			switch(state) {
 			case State.Resetting:
-				if(++nZVU < F_fixed_update) break;
+				if (++nZVU < F_fixed_update)
+					break;
 
-				w_bias = w_ens.Average;
+				w_bias = w_inb_lb_ens.Average;
 				//Coarse tip/tilt estimate, see Groves 2nd ed. section 5.6, p. 198
-				Vector3 a_b = a_ens.Average //specific force includes gravity
-					//, m_b = m_ens.Average
-					; // magnetic field
-				float roll = Mathf.Atan2 (-a_b.y, -a_b.z)
-					, f_yz = Mathf.Sqrt (a_b.y * a_b.y + a_b.z * a_b.z)
-					, pitch = Mathf.Atan2 (a_b.x, f_yz) //less work than the explicit form below
-					//Mathf.Abs(f_b.x) < f_yz
-					//? Mathf.Atan(f_b.x / f_yz) //well-conditioned case
-					//: HALF_PI - Mathf.Atan(f_yz / f_b.x)
-					;
-				Debug.Log (String.Format("resetting with roll {0} pitch {1}, w_bias {2}, Pw_b {3}"
-					, roll, pitch, w_bias, w_ens.Variance));
+				Vector3 a_b = a_inb_lb_ens.Average.normalized; //specific force includes gravity
 
+				//Calculate the nominal case
+				float roll, pitch;
+				if (yIsUp) {
+					roll = Mathf.Asin (-a_b.x);
+					pitch = Mathf.Atan2 (-a_b.z, -a_b.y);
+				} else {
+					roll = Mathf.Asin (a_b.y);
+					pitch = Mathf.Atan2 (-a_b.z, -a_b.x);
+				}
+				//statusText.text = String.Format ("roll {0:N1} pitch {1:N1}, a_b {2}"
+				//	, roll, pitch, a_b);
+
+				//Assert.IsFalse(case_num == 2);
+				//case_num = 1;
+
+				//Reset quaternion to yaw degrees around the z axis,
+				//I don't use Quaternion.Euler(Mathf.Rad2Deg * roll, Mathf.Rad2Deg * pitch, 0)
+				//to avoid, thinking about left-handed rotation.
+				roll *= 0.5f; // Halve the Euler angles feed to quaternion construction
+				pitch *= 0.5f;
+
+				Quaternion q = // Apply the roll first, then pitch
+					new Quaternion (0, 0, Mathf.Sin (roll), Mathf.Cos (roll))
+					* new Quaternion (Mathf.Sin (pitch), 0, 0, Mathf.Cos (pitch));
+				//q_lb = Q_lb
+				//	* Quaternion.Euler(pitch, 0, roll);//minor miracle: the order matches what I need
+				//Debug.Log (String.Format ("roll {0}, pitch {1} a {2} q {3}", roll, pitch, a_b, q));
+
+				const float THRESHOLD = 0.8f;
+				if (Mathf.Abs (a_b.x) < THRESHOLD) { // 1st case: cos(roll) reasonable value
+					q_lb = Q_lb * q;
+					statusText.text = String.Format ("roll {0:N1} pitch {1:N1}, a_b {2}", roll, pitch, a_b);
+				} else { // 2nd case, roll near +/- 90; ay << ax
+					float yaw;
+					if (yIsUp) {
+						roll = -Mathf.Sign (a_b.x) * Mathf.Acos (-a_b.y);
+					} else {
+						roll = Mathf.Sign (a_b.y) * Mathf.Acos (-a_b.x);
+					}
+					yaw = Mathf.Asin (a_b.z / Mathf.Sin (roll));
+					statusText.text = String.Format ("roll {0:N1} yaw {1:N1}, a_b {2}"
+						, roll, yaw, a_b);
+
+					//Assert.IsFalse(case_num == 1);
+					//case_num = 2;
+
+					//Reset quaternion to yaw degrees around the z axis,
+					//I don't use Quaternion.Euler(Mathf.Rad2Deg * roll, Mathf.Rad2Deg * pitch, 0)
+					//to avoid, thinking about left-handed rotation.
+					roll *= 0.5f; // Halve the Euler angles feed to quaternion construction
+					yaw *= 0.5f;
+
+					Quaternion q2 =// Apply the roll first, then yaw about Y
+						new Quaternion (0, 0, Mathf.Sin (roll), Mathf.Cos (roll))
+						* new Quaternion (0, Mathf.Sin (yaw), 0, Mathf.Cos (yaw));
+					//Debug.Log (String.Format("roll {0}, yaw {1} a {2} q {3}", roll, yaw, a_b, q_lb));
+
+					q_lb = Q_lb * Quaternion.Slerp (q, q2, Mathf.Abs (a_b.x) - THRESHOLD);
+				}
 				//Coarse heading estimate, according to Groves 2nd ed. section 6.1.1, p. 219
 				//			float s_roll = Mathf.Sin (roll), c_roll = Mathf.Cos (roll)
 				//				, s_pitch = Mathf.Sin (pitch), c_pitch = Mathf.Cos (pitch)
 				//			    , m_num = -m_b.y * c_roll + m_b.z * s_roll
 				//				, m_den = m_b.x + m_b.y + m_b.z;
 
-				statusText.gameObject.SetActive(false);
-				state = State.Updating;
+				r_inl_lb.Set (0, 0, 0);//Shall I reset the position at 1.5 m height?
+
+				//statusText.gameObject.SetActive(false);
+				//state = State.Updating;
 				break;
 
 			default: //navigation update
+				//q_inc_lb.Set (0, 0, 0.5f * 0.01f, 1);//For now, let's make up a rotation vector
+				//q_lb = q_lb * q_inc_lb;//Rotate the current attitude by the attitude increment
+				//Note: Unity rotation sequence is left-to-right (the opposite of math operations)
+				//Rternion.Normalize (ref q_lb);
 				break;
 			}
 
+			// Update the Unity position and attitude
+			//r_inU_lb.Set(-r_inl_lb.y, r_inl_lb.z, r_inl_lb.x);
+			//const int Scale_w2game = 100;
+
+			// physics is in 10 cm scale (phone dimension); Unity is in m
+			r_inU_lb *= (1000/10);
+
+			q_Ub = Q_Ul * q_lb; //Rotate the q_lb by Q_lU to go to Unity
+			//q_Ub.Set(-q_Ub.x, -q_Ub.z, -q_Ub.y, q_Ub.w); //then go to Unity frame (LH)
+			Rternion.Normalize(ref q_Ub);
 			//Debug.Log("Moving to " + this.r);
-			myRigidbody.MovePosition(r); myRigidbody.MoveRotation(q);
+			myRigidbody.MovePosition(r_inU_lb); myRigidbody.MoveRotation(q_Ub);
 			//myRigidbody.position = r; myRigidbody.rotation = q;
 
-			r_ens.Add(r);
+			r_inl_lb_ens.Add(r_inl_lb);
 
 			//Move the chase cameras (shown in PiP) with the player
-			attitudeCam.transform.position = r + attitudeCamOffset;
-			positionCam.transform.position = r_ens.Average + positionCamOffset;
+			attitudeCam.transform.position = r_inl_lb + attitudeCamOffset;
+			positionCam.transform.position = r_inl_lb_ens.Average + positionCamOffset;
         }
 
         void Update()
         {
 			RaycastHit hitInfo;
-			if (Physics.Raycast(r //The starting point of the ray in world coordinates.
+			if (Physics.Raycast(r_inl_lb //The starting point of the ray in world coordinates.
 				, turret_xform.forward // direction
 				, out hitInfo //hitInfo will contain more information about where the collider was hit
 				//, float maxDistance = Mathf.Infinity
