@@ -175,15 +175,17 @@ namespace CubeSpaceFree
 				nZVU = 0; state = State.Initializing;
 				break;
 			case State.Initializing:
-				w_inb_lb_ens.Add(w_inb_lb);
+				w_inb_lb_ens.Add (w_inb_lb);
 				//m_inb_lb_ens.Add(Input.compass.rawVector);//just prime the averaging queue
 				if (++nZVU < F_fixed_update)
 					break;
-				
 				//Debug.Log ("heading " + Input.compass.magneticHeading);
 				
 				//Input.compass.enabled = false; //turn off compass to save some power
 				w_bias_inb_lb = w_inb_lb_ens.Average;
+				Debug.Log (String.Format ("Gyro bias ({0}, {1}, {2})",
+					w_bias_inb_lb.x, w_bias_inb_lb.y, w_bias_inb_lb.z));
+
 				//Coarse tip/tilt estimate, see Groves 2nd ed. section 5.6, p. 198
 				Vector3 a_b = a_inmu_lmu_ens.Average.normalized; //specific force includes gravity
 
@@ -260,9 +262,17 @@ namespace CubeSpaceFree
 				//q_inc_lb.Set (0, 0, 0.5f * 0.01f, 1);//For now, let's make up a rotation vector
 				//See Groves GNSS 2nd ed. Appendix E section 6.3
 				Vector3 alpha = // Mathf.Deg2Rad * //attitude increment
-					(0.5f * Time.deltaTime) * w_inb_lb
-					;
-				q_inc_lb.Set (alpha.x, alpha.y, alpha.z, 1); // 1st order approximation
+					Time.deltaTime * w_inb_lb;
+				float As = 0.5f, Ac = 1.0f; //1st order approximation
+				if (true) {
+					float alpha_div2 = 0.5f * alpha.magnitude;
+					float alpha_div2_sq = alpha_div2 * alpha_div2;
+					float alpha_div2_qd = alpha_div2_sq * alpha_div2_sq;
+					As = 0.5f - 0.083333333333333f * alpha_div2_sq;
+					Ac = 1.0f - 0.5f * alpha_div2_sq + 0.041666666666667f * alpha_div2_qd;
+				}
+				alpha *= As;
+				q_inc_lb.Set (alpha.x, alpha.y, alpha.z, Ac); // 4st order approximation
 				//q_inc_lb.Set (0, 0, 0.5f * 0.01f, 1);
 				q_lb = q_lb * q_inc_lb;//Rotate the current attitude by the attitude increment
 				//Note: Unity rotation sequence is left-to-right (the opposite of math operations)
