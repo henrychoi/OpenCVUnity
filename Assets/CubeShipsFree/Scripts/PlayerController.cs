@@ -16,8 +16,9 @@ namespace CubeSpaceFree
     public class PlayerController : MonoBehaviour
     {
 		enum State {
-			Resetting,
-			Updating
+			Waiting4Still,
+			Initializing, //Collecting INS input
+			Updating // normal game playing state
 		}
 		State state = State.Updating;
 		int nZVU;
@@ -43,14 +44,14 @@ namespace CubeSpaceFree
 		const float Ts = 1.0f / F_fixed_update;
 
 		#region sensor stats
-		Vector3 w_bias = new Vector3(); //gyro bias
+		Vector3 w_bias_inb_lb = new Vector3(); //gyro bias
 
 		// accel specific gravity [g] window;
 		//Specific acc INCLUDES gravity (i.e. REACTION to gravity NOT subtracted)
-		Vector3Window a_inb_lb_ens = new Vector3Window ((int)(1.0f * F_fixed_update), null);//"acc");
+		Vector3Window a_inmu_lmu_ens = new Vector3Window (F_fixed_update, null);//"acc"); // [g]
 		// gyro [dps] window
-		Vector3Window w_inb_lb_ens = new Vector3Window ((int)(1.0f * F_fixed_update), null);
-			//, m_ens = new Vector3Window (0.5 * F_fixed_update) // magnetic [uT] field window
+		Vector3Window w_inb_lb_ens = new Vector3Window (F_fixed_update, null);// [rad/s]
+		//Vector3Window m_inb_lb_ens = new Vector3Window (F_fixed_update, null);// [uT]
 		#endregion
 
 		bool started = false;
@@ -102,8 +103,9 @@ namespace CubeSpaceFree
 			}
 
 			Input.compensateSensors = true;
-
 			//Must be faster or equal rate than FixedUpdate interval
+			Input.gyro.enabled = true;
+			//Input.compass.enabled = true;
 			Input.gyro.updateInterval = 1.0f/F_fixed_update;
 
 			//Chase camera position offsets
@@ -140,29 +142,50 @@ namespace CubeSpaceFree
 			//statusText.text = "Please hold still";
 			statusText.gameObject.SetActive(true);
 			nZVU = 0;
-			state = State.Resetting;
+			state = State.Initializing;
+			//Input.compass.enabled = true;
 		}
 	
         void FixedUpdate()
         {   //Debug.Log("dT = " + Time.deltaTime);
+			Vector3 a_inmu_lmu = Input.acceleration
+				, w_inb_lb = //Input.gyro.rotationRate // in mu frame (RH!)
+					Input.gyro.rotationRateUnbiased
+				;
+
+			//Take from mu to b, going from RH to LF system
+			if (yIsUp)
+				w_inb_lb.Set (-w_inb_lb.x, -w_inb_lb.y, w_inb_lb.z);
+			else
+				w_inb_lb.Set (w_inb_lb.y, -w_inb_lb.x, w_inb_lb.z);
 
 			//not sure if this is compensated, but still estimate bias
-			a_inb_lb_ens.Add(Input.acceleration);
+			a_inmu_lmu_ens.Add(a_inmu_lmu);
 			//Debug.Log(String.Format("acc = ({0:F},{1:F},{2:F})", acc.x, acc.y, acc.z));
-
-			//I will do further bias estimation using the compensated gyro values
-			w_inb_lb_ens.Add(Input.gyro.rotationRateUnbiased);
 
 			//m_ens.Add(Input.compass.rawVector);
 			//float heading = Input.compass.magneticHeading;//[deg]
 			switch(state) {
-			case State.Resetting:
+			case State.Waiting4Still:
+				//I might do further bias estimation using the compensated gyro values
+				w_inb_lb_ens.Add(w_inb_lb);
+				//m_inb_lb_ens.Add (Input.compass.rawVector);//just prime the averaging queue
 				if (++nZVU < F_fixed_update)
 					break;
-
-				w_bias = w_inb_lb_ens.Average;
+				nZVU = 0; state = State.Initializing;
+				break;
+			case State.Initializing:
+				w_inb_lb_ens.Add(w_inb_lb);
+				//m_inb_lb_ens.Add(Input.compass.rawVector);//just prime the averaging queue
+				if (++nZVU < F_fixed_update)
+					break;
+				
+				//Debug.Log ("heading " + Input.compass.magneticHeading);
+				
+				//Input.compass.enabled = false; //turn off compass to save some power
+				w_bias_inb_lb = w_inb_lb_ens.Average;
 				//Coarse tip/tilt estimate, see Groves 2nd ed. section 5.6, p. 198
-				Vector3 a_b = a_inb_lb_ens.Average.normalized; //specific force includes gravity
+				Vector3 a_b = a_inmu_lmu_ens.Average.normalized; //specific force includes gravity
 
 				//Calculate the nominal case
 				float roll, pitch;
@@ -197,13 +220,10 @@ namespace CubeSpaceFree
 					q_lb = Q_lb * q;
 					statusText.text = String.Format ("roll {0:N1} pitch {1:N1}, a_b {2}", roll, pitch, a_b);
 				} else { // 2nd case, roll near +/- 90; ay << ax
-					float yaw;
-					if (yIsUp) {
-						roll = -Mathf.Sign (a_b.x) * Mathf.Acos (-a_b.y);
-					} else {
-						roll = Mathf.Sign (a_b.y) * Mathf.Acos (-a_b.x);
-					}
-					yaw = Mathf.Asin (a_b.z / Mathf.Sin (roll));
+					roll = yIsUp
+						? -Mathf.Sign (a_b.x) * Mathf.Acos (-a_b.y)
+						: Mathf.Sign (a_b.y) * Mathf.Acos (-a_b.x);
+					float yaw = Mathf.Asin (a_b.z / Mathf.Sin (roll));
 					statusText.text = String.Format ("roll {0:N1} yaw {1:N1}, a_b {2}"
 						, roll, yaw, a_b);
 
@@ -229,15 +249,22 @@ namespace CubeSpaceFree
 				//			    , m_num = -m_b.y * c_roll + m_b.z * s_roll
 				//				, m_den = m_b.x + m_b.y + m_b.z;
 
-				r_inl_lb.Set (0, 0, 0);//Shall I reset the position at 1.5 m height?
+				r_inl_lb.Set (0, 0, 0);//Q: shall I reset the position at 1 km height?
 
-				//statusText.gameObject.SetActive(false);
-				//state = State.Updating;
+				statusText.gameObject.SetActive(false);
+				state = State.Updating;
 				break;
 
 			default: //navigation update
+				//Debug.Log(String.Format("a {0}, w {1}, gyro {2}", a_inb_lb, w_inb_lb, Input.gyro.enabled));
 				//q_inc_lb.Set (0, 0, 0.5f * 0.01f, 1);//For now, let's make up a rotation vector
-				//q_lb = q_lb * q_inc_lb;//Rotate the current attitude by the attitude increment
+				//See Groves GNSS 2nd ed. Appendix E section 6.3
+				Vector3 alpha = // Mathf.Deg2Rad * //attitude increment
+					(0.5f * Time.deltaTime) * w_inb_lb
+					;
+				q_inc_lb.Set (alpha.x, alpha.y, alpha.z, 1); // 1st order approximation
+				//q_inc_lb.Set (0, 0, 0.5f * 0.01f, 1);
+				q_lb = q_lb * q_inc_lb;//Rotate the current attitude by the attitude increment
 				//Note: Unity rotation sequence is left-to-right (the opposite of math operations)
 				//Rternion.Normalize (ref q_lb);
 				break;
