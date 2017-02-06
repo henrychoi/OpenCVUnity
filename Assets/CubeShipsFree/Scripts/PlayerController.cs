@@ -48,7 +48,7 @@ namespace CubeSpaceFree
 
 		// accel specific gravity [g] window;
 		//Specific acc INCLUDES gravity (i.e. REACTION to gravity NOT subtracted)
-		Vector3Window a_inmu_lmu_ens = new Vector3Window (F_fixed_update, null);//"acc"); // [g]
+		Vector3Window i_inmu_lmu_ens = new Vector3Window (F_fixed_update, null);//"acc"); // [g]
 		// gyro [dps] window
 		Vector3Window w_inb_lb_ens = new Vector3Window (F_fixed_update, null);// [rad/s]
 		//Vector3Window m_inb_lb_ens = new Vector3Window (F_fixed_update, null);// [uT]
@@ -61,16 +61,21 @@ namespace CubeSpaceFree
 
 
 		//The current position and rotation of the player in local tangtent frame (l)
-		Vector3 r_inl_lb = new Vector3()
-			, r_inU_lb  = new Vector3(); //same vector but scaled and rotated from physics to Unity
-		Vector3Window r_inl_lb_ens = new Vector3Window (F_fixed_update, null); 
+		Vector3 r_inl_lb = new Vector3(),
+			r_inU_lb  = new Vector3(), //same vector but scaled and rotated from physics to Unity
+			g_inl = Vector3.down,
+			f_inb_lb = new Vector3(), //includes reaction to gravity, in body frame
+			a_inl_lb, //reaction to gravity taken out
+			v_inl_lb;
+
+		Vector3Window r_inU_lb_ens = new Vector3Window (F_fixed_update, null); 
 
 		static Quaternion Q_lb = new Quaternion (0, 0, Mathf.Sin (Mathf.PI / 4), Mathf.Cos (Mathf.PI / 4))
 		                         * new Quaternion (Mathf.Sin (Mathf.PI / 4), 0, 0, Mathf.Cos (Mathf.PI / 4))
 			//, Q2_lb = new Quaternion (0, Mathf.Sin (-Mathf.PI / 4), 0, Mathf.Cos (-Mathf.PI / 4))
 			//	* new Quaternion (Mathf.Sin (Mathf.PI / 2), 0, 0, Mathf.Cos (Mathf.PI / 2))
 			;
-		Quaternion q_lb = Q_lb
+		Quaternion q_lb = Q_lb, q_lb_avg = Quaternion.identity
 			, q_Ub = Quaternion.identity
 			, q_inc_lb = Quaternion.identity
 		;
@@ -145,29 +150,25 @@ namespace CubeSpaceFree
 			state = State.Initializing;
 			//Input.compass.enabled = true;
 		}
-	
+
         void FixedUpdate()
         {   //Debug.Log("dT = " + Time.deltaTime);
-			Vector3 a_inmu_lmu = Input.acceleration
-				, w_inb_lb = //Input.gyro.rotationRate // in mu frame (RH!)
+			Vector3 i_inmu_lmu = Input.acceleration; //sensor measures INERTIAL force 
+			Vector3 w_inb_lb = //Input.gyro.rotationRate // in mu frame (RH!)
 					Input.gyro.rotationRateUnbiased
 				;
-
+			
 			//Take from mu to b, going from RH to LF system
-			if (yIsUp)
-				w_inb_lb.Set (-w_inb_lb.x, -w_inb_lb.y, w_inb_lb.z);
-			else
+			if (yIsUp) {
+				w_inb_lb.Set (-w_inb_lb.x, -w_inb_lb.y, w_inb_lb.z);//R-> rotation, so sign change
+			} else {
 				w_inb_lb.Set (w_inb_lb.y, -w_inb_lb.x, w_inb_lb.z);
-
-			//not sure if this is compensated, but still estimate bias
-			a_inmu_lmu_ens.Add(a_inmu_lmu);
-			//Debug.Log(String.Format("acc = ({0:F},{1:F},{2:F})", acc.x, acc.y, acc.z));
-
+			}
 			//m_ens.Add(Input.compass.rawVector);
 			//float heading = Input.compass.magneticHeading;//[deg]
 			switch(state) {
 			case State.Waiting4Still:
-				//I might do further bias estimation using the compensated gyro values
+				i_inmu_lmu_ens.Add(i_inmu_lmu);
 				w_inb_lb_ens.Add(w_inb_lb);
 				//m_inb_lb_ens.Add (Input.compass.rawVector);//just prime the averaging queue
 				if (++nZVU < F_fixed_update)
@@ -175,6 +176,7 @@ namespace CubeSpaceFree
 				nZVU = 0; state = State.Initializing;
 				break;
 			case State.Initializing:
+				i_inmu_lmu_ens.Add(i_inmu_lmu);
 				w_inb_lb_ens.Add (w_inb_lb);
 				//m_inb_lb_ens.Add(Input.compass.rawVector);//just prime the averaging queue
 				if (++nZVU < F_fixed_update)
@@ -187,16 +189,21 @@ namespace CubeSpaceFree
 					w_bias_inb_lb.x, w_bias_inb_lb.y, w_bias_inb_lb.z));
 
 				//Coarse tip/tilt estimate, see Groves 2nd ed. section 5.6, p. 198
-				Vector3 a_b = a_inmu_lmu_ens.Average.normalized; //specific force includes gravity
+				Vector3 g_mu = i_inmu_lmu_ens.Average.normalized; //Zero acceleration assumption
+
+				//Since I don't (want to) know the latitude and longitude, I can't look up the 
+				//world gravity model.  Instead, I will use this as the gravity estimate in the
+				g_inl.Set(0, 0, -i_inmu_lmu_ens.Average.magnitude); //Updating state below
+				//g_inl.Set(0, 0, -1);
 
 				//Calculate the nominal case
 				float roll, pitch;
 				if (yIsUp) {
-					roll = Mathf.Asin (-a_b.x);
-					pitch = Mathf.Atan2 (-a_b.z, -a_b.y);
+					roll = Mathf.Asin (-g_mu.x);
+					pitch = Mathf.Atan2 (-g_mu.z, -g_mu.y);
 				} else {
-					roll = Mathf.Asin (a_b.y);
-					pitch = Mathf.Atan2 (-a_b.z, -a_b.x);
+					roll = Mathf.Asin (g_mu.y);
+					pitch = Mathf.Atan2 (-g_mu.z, -g_mu.x);
 				}
 				//statusText.text = String.Format ("roll {0:N1} pitch {1:N1}, a_b {2}"
 				//	, roll, pitch, a_b);
@@ -218,16 +225,15 @@ namespace CubeSpaceFree
 				//Debug.Log (String.Format ("roll {0}, pitch {1} a {2} q {3}", roll, pitch, a_b, q));
 
 				const float THRESHOLD = 0.8f;
-				if (Mathf.Abs (a_b.x) < THRESHOLD) { // 1st case: cos(roll) reasonable value
+				if (Mathf.Abs (g_mu.x) < THRESHOLD) { // 1st case: cos(roll) reasonable value
 					q_lb = Q_lb * q;
-					statusText.text = String.Format ("roll {0:N1} pitch {1:N1}, a_b {2}", roll, pitch, a_b);
+					//statusText.text = String.Format ("roll {0:N1} pitch {1:N1}, a_b {2}", roll, pitch, g_mu);
 				} else { // 2nd case, roll near +/- 90; ay << ax
 					roll = yIsUp
-						? -Mathf.Sign (a_b.x) * Mathf.Acos (-a_b.y)
-						: Mathf.Sign (a_b.y) * Mathf.Acos (-a_b.x);
-					float yaw = Mathf.Asin (a_b.z / Mathf.Sin (roll));
-					statusText.text = String.Format ("roll {0:N1} yaw {1:N1}, a_b {2}"
-						, roll, yaw, a_b);
+						? -Mathf.Sign (g_mu.x) * Mathf.Acos (-g_mu.y)
+						: Mathf.Sign (g_mu.y) * Mathf.Acos (-g_mu.x);
+					float yaw = Mathf.Asin (g_mu.z / Mathf.Sin (roll));
+					//statusText.text = String.Format ("roll {0:N1} yaw {1:N1}, a_b {2}", roll, yaw, g_mu);
 
 					//Assert.IsFalse(case_num == 1);
 					//case_num = 2;
@@ -243,7 +249,7 @@ namespace CubeSpaceFree
 						* new Quaternion (0, Mathf.Sin (yaw), 0, Mathf.Cos (yaw));
 					//Debug.Log (String.Format("roll {0}, yaw {1} a {2} q {3}", roll, yaw, a_b, q_lb));
 
-					q_lb = Q_lb * Quaternion.Slerp (q, q2, Mathf.Abs (a_b.x) - THRESHOLD);
+					q_lb = Q_lb * Quaternion.Slerp (q, q2, Mathf.Abs (g_mu.x) - THRESHOLD);
 				}
 				//Coarse heading estimate, according to Groves 2nd ed. section 6.1.1, p. 219
 				//			float s_roll = Mathf.Sin (roll), c_roll = Mathf.Cos (roll)
@@ -252,40 +258,68 @@ namespace CubeSpaceFree
 				//				, m_den = m_b.x + m_b.y + m_b.z;
 
 				r_inl_lb.Set (0, 0, 0);//Q: shall I reset the position at 1 km height?
-
-				statusText.gameObject.SetActive(false);
+				v_inl_lb.Set (0, 0, 0);
+				//statusText.gameObject.SetActive(false);
 				state = State.Updating;
 				break;
 
 			default: //navigation update
+				//Debug.Log ("a_inmu_lmu " + a_inmu_lmu);
+				//Assert.IsTrue (a_inmu_lmu.magnitude < 2);
 				//Debug.Log(String.Format("a {0}, w {1}, gyro {2}", a_inb_lb, w_inb_lb, Input.gyro.enabled));
 				//q_inc_lb.Set (0, 0, 0.5f * 0.01f, 1);//For now, let's make up a rotation vector
+
+				//Calculate the average attitude (to rotate the specific force to l)
 				//See Groves GNSS 2nd ed. Appendix E section 6.3
-				Vector3 alpha = // Mathf.Deg2Rad * //attitude increment
-					Time.deltaTime * w_inb_lb;
+				Vector3 alpha = 0.5f * Time.deltaTime * w_inb_lb;
 				float As = 0.5f, Ac = 1.0f; //1st order approximation
-				if (true) {
-					float alpha_div2 = 0.5f * alpha.magnitude;
-					float alpha_div2_sq = alpha_div2 * alpha_div2;
-					float alpha_div2_qd = alpha_div2_sq * alpha_div2_sq;
+				const int O_ATTITUDE_UPDATE = 4;
+				float alpha_div2, alpha_div2_sq, alpha_div2_qd;
+				if (O_ATTITUDE_UPDATE == 4) {
+					alpha_div2 = 0.5f * alpha.magnitude;
+					alpha_div2_sq = alpha_div2 * alpha_div2;
+					alpha_div2_qd = alpha_div2_sq * alpha_div2_sq;
 					As = 0.5f - 0.083333333333333f * alpha_div2_sq;
 					Ac = 1.0f - 0.5f * alpha_div2_sq + 0.041666666666667f * alpha_div2_qd;
 				}
 				alpha *= As;
 				q_inc_lb.Set (alpha.x, alpha.y, alpha.z, Ac); // 4st order approximation
-				//q_inc_lb.Set (0, 0, 0.5f * 0.01f, 1);
+				q_lb_avg = q_lb * q_inc_lb;//Rotate the current attitude by (attitude increment)/2
+
+				//Specific force on body is equal and opposite to INERTIAL reaction,
+				//but Z flips sign when going R->L frame //Still has REACTION to gravity
+				f_inb_lb.Set (-i_inmu_lmu.x, -i_inmu_lmu.y, i_inmu_lmu.z);
+
+				//Rotate to l and ADD gravity (because f_inb had REACTION to gravity)
+				a_inl_lb = q_lb_avg * f_inb_lb + g_inl;
+				Vector3 v_inl_lb_p = v_inl_lb + a_inl_lb * Time.deltaTime;
+				Vector3 v_inl_avg = 0.5f * (v_inl_lb + v_inl_lb_p);
+				v_inl_lb = v_inl_lb_p; //update to new velocity
+				r_inl_lb += v_inl_avg * Time.deltaTime;
+					
+				statusText.text = String.Format ("a_inl_lb {0}, v_inl_lb_avg {1}", a_inl_lb, v_inl_avg);
+				//Debug.Log(String.Format("a_inl_lb {0}, v_inl_lb_avg {1}", a_inl_lb, v_inl_avg));
+				//Assert.IsTrue (a_inl_lb.magnitude < 2.0f);//sanity test
+
+				//Compute the new attitude (not the average)
+				alpha = Time.deltaTime * w_inb_lb;
+				alpha_div2 = 0.5f * alpha.magnitude;
+				alpha_div2_sq = alpha_div2 * alpha_div2;
+				alpha_div2_qd = alpha_div2_sq * alpha_div2_sq;
+				As = 0.5f - 0.083333333333333f * alpha_div2_sq;
+				Ac = 1.0f - 0.5f * alpha_div2_sq + 0.041666666666667f * alpha_div2_qd;
+				alpha *= As;
+				q_inc_lb.Set (alpha.x, alpha.y, alpha.z, Ac); // 4st order approximation
+				//q_inc_lb.Set (0, 0, 0.5f * 0.01f, 1);//make up a rotation for debugging
 				q_lb = q_lb * q_inc_lb;//Rotate the current attitude by the attitude increment
-				//Note: Unity rotation sequence is left-to-right (the opposite of math operations)
-				//Rternion.Normalize (ref q_lb);
+
 				break;
 			}
 
 			// Update the Unity position and attitude
-			//r_inU_lb.Set(-r_inl_lb.y, r_inl_lb.z, r_inl_lb.x);
-			//const int Scale_w2game = 100;
-
-			// physics is in 10 cm scale (phone dimension); Unity is in m
-			r_inU_lb *= (1000/10);
+			r_inU_lb.Set(-r_inl_lb.y, r_inl_lb.z, r_inl_lb.x);
+			const int Scale_l2U = 1000/10;// physics is in 10 cm scale (phone dimension); Unity is in m
+			r_inU_lb *= Scale_l2U;
 
 			q_Ub = Q_Ul * q_lb; //Rotate the q_lb by Q_lU to go to Unity
 			//q_Ub.Set(-q_Ub.x, -q_Ub.z, -q_Ub.y, q_Ub.w); //then go to Unity frame (LH)
@@ -294,11 +328,11 @@ namespace CubeSpaceFree
 			myRigidbody.MovePosition(r_inU_lb); myRigidbody.MoveRotation(q_Ub);
 			//myRigidbody.position = r; myRigidbody.rotation = q;
 
-			r_inl_lb_ens.Add(r_inl_lb);
+			r_inU_lb_ens.Add(r_inU_lb);
 
 			//Move the chase cameras (shown in PiP) with the player
-			attitudeCam.transform.position = r_inl_lb + attitudeCamOffset;
-			positionCam.transform.position = r_inl_lb_ens.Average + positionCamOffset;
+			attitudeCam.transform.position = r_inU_lb + attitudeCamOffset;
+			positionCam.transform.position = r_inU_lb_ens.Average + positionCamOffset;
         }
 
         void Update()
