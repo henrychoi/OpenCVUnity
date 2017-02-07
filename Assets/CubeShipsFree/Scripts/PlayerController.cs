@@ -75,7 +75,7 @@ namespace CubeSpaceFree
 			//, Q2_lb = new Quaternion (0, Mathf.Sin (-Mathf.PI / 4), 0, Mathf.Cos (-Mathf.PI / 4))
 			//	* new Quaternion (Mathf.Sin (Mathf.PI / 2), 0, 0, Mathf.Cos (Mathf.PI / 2))
 			;
-		Quaternion q_lb = Q_lb, q_lb_avg = Quaternion.identity
+		Quaternion q_lb = Q_lb, q_lb_avg = Q_lb //, q_bl_avg = Quaternion.Inverse(Q_lb)
 			, q_Ub = Quaternion.identity
 			, q_inc_lb = Quaternion.identity
 		;
@@ -100,6 +100,17 @@ namespace CubeSpaceFree
 		// Use this for initialization
         void Start()
 		{
+			#if WHAT_IS_UNITY_QUATERNION_MULTIPLY_DOING //Understand Unity's quaternion rotation
+			Quaternion q = Q_lb
+				//new Quaternion (0, Mathf.Sin (-Mathf.PI / 4), 0, Mathf.Cos (-Mathf.PI / 4)) *
+			    //new Quaternion (Mathf.Sin (-Mathf.PI / 4), 0, 0, Mathf.Cos (-Mathf.PI / 4))
+				;
+			Vector3 v = q * Vector3.up;
+			Matrix4x4 mx = Matrix4x4.TRS (Vector3.zero, q, Vector3.one);
+			Debug.Log(String.Format("quat {0} mx {2}, rot {1}", q, v, mx));
+			//Assert.AreEqual(v, Vector3.forward);
+			Assert.IsTrue(false);
+			#endif
 			//Debug.Log ("platform =" + Application.platform);
 			if (Application.platform == RuntimePlatform.OSXEditor
 			    || Application.platform == RuntimePlatform.WindowsEditor) {
@@ -286,18 +297,26 @@ namespace CubeSpaceFree
 				q_inc_lb.Set (alpha.x, alpha.y, alpha.z, Ac); // 4st order approximation
 				q_lb_avg = q_lb * q_inc_lb;//Rotate the current attitude by (attitude increment)/2
 
+				//No need to invert the q_lb to q_bl, because q_lb * v actually works like rotate(q_bl, v)
+				//q_bl_avg = Quaternion.Inverse (q_lb_avg);
+				//q_bl_avg.Set (q_lb_avg.x, q_lb_avg.y, q_lb_avg.z, -q_lb_avg.w);
+
 				//Specific force on body is equal and opposite to INERTIAL reaction,
 				//but Z flips sign when going R->L frame //Still has REACTION to gravity
 				f_inb_lb.Set (-i_inmu_lmu.x, -i_inmu_lmu.y, i_inmu_lmu.z);
-
-				//Rotate to l and ADD gravity (because f_inb had REACTION to gravity)
-				a_inl_lb = q_lb_avg * f_inb_lb + g_inl;
+				//Rotate force in b to l and ADD gravity (because f_inb had REACTION to gravity)
+				const float G2MPS2 = 9.807f; //from wiki
+				//Vector3 f_inl_lb = q_bl_avg * f_inb_lb;
+				a_inl_lb = G2MPS2//* (f_inl_lb + g_inl);//
+					* (q_lb_avg * f_inb_lb + g_inl);//* (q_bl_avg * f_inb_lb + g_inl);
+				//a_inl_lb = new Quaternion (.5f, .5f, .5f, -.5f) * Vector3.up;
 				Vector3 v_inl_lb_p = v_inl_lb + a_inl_lb * Time.deltaTime;
 				Vector3 v_inl_avg = 0.5f * (v_inl_lb + v_inl_lb_p);
 				v_inl_lb = v_inl_lb_p; //update to new velocity
 				r_inl_lb += v_inl_avg * Time.deltaTime;
 					
-				statusText.text = String.Format ("a_inl_lb {0}, v_inl_lb_avg {1}", a_inl_lb, v_inl_avg);
+				statusText.text = String.Format ("f_inb {2} a_inl {0}, v_inl_avg {1}",
+					a_inl_lb, v_inl_avg, f_inb_lb);
 				//Debug.Log(String.Format("a_inl_lb {0}, v_inl_lb_avg {1}", a_inl_lb, v_inl_avg));
 				//Assert.IsTrue (a_inl_lb.magnitude < 2.0f);//sanity test
 
