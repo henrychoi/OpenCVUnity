@@ -18,6 +18,7 @@ namespace CubeSpaceFree
 		enum State {
 			Waiting4Still,
 			Initializing, //Collecting INS input
+			ConfirmingBias,//How big is the residual bias after initialization?
 			Updating // normal game playing state
 		}
 		State state = State.Updating;
@@ -175,25 +176,25 @@ namespace CubeSpaceFree
 			} else {
 				w_inb_lb.Set (w_inb_lb.y, -w_inb_lb.x, w_inb_lb.z);
 			}
+
+			i_inmu_lmu_ens.Add (i_inmu_lmu); //These 2 stats are always useful for initializing
+			w_inb_lb_ens.Add (w_inb_lb);     //or updating
 			//m_ens.Add(Input.compass.rawVector);
 			//float heading = Input.compass.magneticHeading;//[deg]
-			switch(state) {
+
+			switch (state) {
 			case State.Waiting4Still:
-				i_inmu_lmu_ens.Add(i_inmu_lmu);
-				w_inb_lb_ens.Add(w_inb_lb);
-				//m_inb_lb_ens.Add (Input.compass.rawVector);//just prime the averaging queue
 				if (++nZVU < F_fixed_update)
 					break;
-				nZVU = 0; state = State.Initializing;
+				nZVU = 0;
+				state = State.Initializing;
 				break;
 			case State.Initializing:
-				i_inmu_lmu_ens.Add(i_inmu_lmu);
-				w_inb_lb_ens.Add (w_inb_lb);
 				//m_inb_lb_ens.Add(Input.compass.rawVector);//just prime the averaging queue
 				if (++nZVU < F_fixed_update)
 					break;
 				//Debug.Log ("heading " + Input.compass.magneticHeading);
-				
+				Debug.Log ("i_inmu_lmu " + i_inmu_lmu_ens.Average);
 				//Input.compass.enabled = false; //turn off compass to save some power
 				w_bias_inb_lb = w_inb_lb_ens.Average;
 				Debug.Log (String.Format ("Gyro bias ({0}, {1}, {2})",
@@ -204,7 +205,7 @@ namespace CubeSpaceFree
 
 				//Since I don't (want to) know the latitude and longitude, I can't look up the 
 				//world gravity model.  Instead, I will use this as the gravity estimate in the
-				g_inl.Set(0, 0, -i_inmu_lmu_ens.Average.magnitude); //Updating state below
+				g_inl.Set (0, 0, -i_inmu_lmu_ens.Average.magnitude); //Updating state below
 				//g_inl.Set(0, 0, -1);
 
 				//Calculate the nominal case
@@ -255,22 +256,46 @@ namespace CubeSpaceFree
 					roll *= 0.5f; // Halve the Euler angles feed to quaternion construction
 					yaw *= 0.5f;
 
-					Quaternion q2 =// Apply the roll first, then yaw about Y
+					Quaternion q2 = // Apply the roll first, then yaw about Y
 						new Quaternion (0, 0, Mathf.Sin (roll), Mathf.Cos (roll))
 						* new Quaternion (0, Mathf.Sin (yaw), 0, Mathf.Cos (yaw));
 					//Debug.Log (String.Format("roll {0}, yaw {1} a {2} q {3}", roll, yaw, a_b, q_lb));
 
 					q_lb = Q_lb * Quaternion.Slerp (q, q2, Mathf.Abs (g_mu.x) - THRESHOLD);
 				}
+				//Sanity check the solution: q_ub(i_inmu_lmu_ens.Average) rotated by q_bl should be
+				//g_inl, but since Quaternion.operator*(Quaternion q, Vector3 v) actually rotates
+				//the vector the OTHER way, do some mental juggling
+				Vector3 i_b_avg = i_inmu_lmu_ens.Average;
+				i_b_avg.Set (i_b_avg.x, i_b_avg.y, -i_b_avg.z); // IMU --> b frame
+				//Debug.Log ("g_inmu " + g_inmu);
+				Vector3 i_inl = q_lb * i_b_avg;
+				Assert.AreApproximatelyEqual (i_inl.x, g_inl.x);
+				Assert.AreApproximatelyEqual (i_inl.y, g_inl.y);
+				Assert.AreApproximatelyEqual (i_inl.z, g_inl.z);
+
 				//Coarse heading estimate, according to Groves 2nd ed. section 6.1.1, p. 219
-				//			float s_roll = Mathf.Sin (roll), c_roll = Mathf.Cos (roll)
-				//				, s_pitch = Mathf.Sin (pitch), c_pitch = Mathf.Cos (pitch)
-				//			    , m_num = -m_b.y * c_roll + m_b.z * s_roll
-				//				, m_den = m_b.x + m_b.y + m_b.z;
+//				float s_roll = Mathf.Sin (roll), c_roll = Mathf.Cos (roll)
+//				, s_pitch = Mathf.Sin (pitch), c_pitch = Mathf.Cos (pitch)
+//			    , m_num = -m_b.y * c_roll + m_b.z * s_roll
+//				, m_den = m_b.x + m_b.y + m_b.z;
 
 				r_inl_lb.Set (0, 0, 0);//Q: shall I reset the position at 1 km height?
 				v_inl_lb.Set (0, 0, 0);
 				//statusText.gameObject.SetActive(false);
+				state = State.Updating;//State.ConfirmingBias;
+				nZVU = 0;
+				break;
+
+			case State.ConfirmingBias:
+				if (++nZVU < F_fixed_update)
+					break;
+				Vector3 w_inb = w_inb_lb_ens.Average;
+			    i_b_avg = i_inmu_lmu_ens.Average;
+				Assert.AreApproximatelyEqual(i_b_avg.x, i_inmu_lmu_ens.Average.x);
+				Assert.AreApproximatelyEqual(i_b_avg.y, i_inmu_lmu_ens.Average.y);
+				Assert.AreApproximatelyEqual(i_b_avg.z, i_inmu_lmu_ens.Average.z);
+
 				state = State.Updating;
 				break;
 
