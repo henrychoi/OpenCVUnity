@@ -16,12 +16,13 @@ namespace CubeSpaceFree
     public class PlayerController : MonoBehaviour
     {
 		enum State {
+			NotUpdating,
 			Waiting4Still,
 			Initializing, //Collecting INS input
 			ConfirmingBias,//How big is the residual bias after initialization?
 			Updating // normal game playing state
 		}
-		State state = State.Updating;
+		State state = State.NotUpdating;
 		int nZVU;
 
 		#region MOVEMENT CONTROL
@@ -299,7 +300,7 @@ namespace CubeSpaceFree
 				state = State.Updating;
 				break;
 
-			default: //navigation update
+			case State.Updating: //navigation update
 				//Debug.Log ("a_inmu_lmu " + a_inmu_lmu);
 				//Assert.IsTrue (a_inmu_lmu.magnitude < 2);
 				//Debug.Log(String.Format("a {0}, w {1}, gyro {2}", a_inb_lb, w_inb_lb, Input.gyro.enabled));
@@ -357,26 +358,28 @@ namespace CubeSpaceFree
 				//q_inc_lb.Set (0, 0, 0.5f * 0.01f, 1);//make up a rotation for debugging
 				q_lb = q_lb * q_inc_lb;//Rotate the current attitude by the attitude increment
 
+				// Update the Unity position and attitude
+				r_inU_lb.Set(-r_inl_lb.y, r_inl_lb.z, r_inl_lb.x);
+				const int Scale_l2U = 1000/10;// physics is in 10 cm scale (phone dimension); Unity is in m
+				r_inU_lb *= Scale_l2U;
+
+				q_Ub = Q_Ul * q_lb; //Rotate the q_lb by Q_lU to go to Unity
+				//q_Ub.Set(-q_Ub.x, -q_Ub.z, -q_Ub.y, q_Ub.w); //then go to Unity frame (LH)
+				Rternion.Normalize(ref q_Ub);
+				//Debug.Log("Moving to " + this.r);
+				myRigidbody.MovePosition(r_inU_lb); myRigidbody.MoveRotation(q_Ub);
+				//myRigidbody.position = r; myRigidbody.rotation = q;
+
+				r_inU_lb_ens.Add(r_inU_lb);
+
+				//Move the chase cameras (shown in PiP) with the player
+				attitudeCam.transform.position = r_inU_lb + attitudeCamOffset;
+				positionCam.transform.position = r_inU_lb_ens.Average + positionCamOffset;
+				break;
+
+			default://not updating
 				break;
 			}
-
-			// Update the Unity position and attitude
-			r_inU_lb.Set(-r_inl_lb.y, r_inl_lb.z, r_inl_lb.x);
-			const int Scale_l2U = 1000/10;// physics is in 10 cm scale (phone dimension); Unity is in m
-			r_inU_lb *= Scale_l2U;
-
-			q_Ub = Q_Ul * q_lb; //Rotate the q_lb by Q_lU to go to Unity
-			//q_Ub.Set(-q_Ub.x, -q_Ub.z, -q_Ub.y, q_Ub.w); //then go to Unity frame (LH)
-			Rternion.Normalize(ref q_Ub);
-			//Debug.Log("Moving to " + this.r);
-			myRigidbody.MovePosition(r_inU_lb); myRigidbody.MoveRotation(q_Ub);
-			//myRigidbody.position = r; myRigidbody.rotation = q;
-
-			r_inU_lb_ens.Add(r_inU_lb);
-
-			//Move the chase cameras (shown in PiP) with the player
-			attitudeCam.transform.position = r_inU_lb + attitudeCamOffset;
-			positionCam.transform.position = r_inU_lb_ens.Average + positionCamOffset;
         }
 
         void Update()
