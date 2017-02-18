@@ -102,6 +102,8 @@ namespace CubeSpaceFree
 		// Use this for initialization
         void Start()
 		{
+			iOSTorch.Init ();
+
 			#if WHAT_IS_UNITY_QUATERNION_MULTIPLY_DOING //Understand Unity's quaternion rotation
 			Quaternion q = Q_lb
 				//new Quaternion (0, Mathf.Sin (-Mathf.PI / 4), 0, Mathf.Cos (-Mathf.PI / 4)) *
@@ -384,6 +386,25 @@ namespace CubeSpaceFree
 
         void Update()
         {
+			// loop through each touch
+			foreach (Touch touch in Input.touches)
+			{
+				//if the touch has just started, or moved
+				if (touch.phase == TouchPhase.Began || touch.phase == TouchPhase.Moved)
+				{
+					float intensity = touch.position.y / Screen.height;
+					Debug.Log ("Turning on torch with intensity " + intensity);
+					iOSTorch.On(intensity); 
+				}
+
+				// if the touch has ended or was canceled
+				else if (touch.phase == TouchPhase.Canceled || touch.phase == TouchPhase.Ended)
+				{
+					Debug.Log ("Turning off torch");
+					iOSTorch.Off();
+				}
+			}
+
 			RaycastHit hitInfo;
 			if (Physics.Raycast(r_inl_lb //The starting point of the ray in world coordinates.
 				, turret_xform.forward // direction
