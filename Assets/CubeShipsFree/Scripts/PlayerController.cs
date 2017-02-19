@@ -99,27 +99,28 @@ namespace CubeSpaceFree
 		Vector3 attitudeCamOffset, positionCamOffset;
 		bool yIsUp = true;//alternative is up
 
+		void OnApplicationPause( bool pause )
+		{
+			if (Application.platform == RuntimePlatform.IPhonePlayer) {
+				if (pause) iOSTorch.Off ();
+				else iOSTorch.On (0.001f);
+			}
+		}
+
 		// Use this for initialization
         void Start()
 		{
-			iOSTorch.Init ();
-
-			#if WHAT_IS_UNITY_QUATERNION_MULTIPLY_DOING //Understand Unity's quaternion rotation
-			Quaternion q = Q_lb
-				//new Quaternion (0, Mathf.Sin (-Mathf.PI / 4), 0, Mathf.Cos (-Mathf.PI / 4)) *
-			    //new Quaternion (Mathf.Sin (-Mathf.PI / 4), 0, 0, Mathf.Cos (-Mathf.PI / 4))
-				;
-			Vector3 v = q * Vector3.up;
-			Matrix4x4 mx = Matrix4x4.TRS (Vector3.zero, q, Vector3.one);
-			Debug.Log(String.Format("quat {0} mx {2}, rot {1}", q, v, mx));
-			//Assert.AreEqual(v, Vector3.forward);
-			Assert.IsTrue(false);
-			#endif
 			//Debug.Log ("platform =" + Application.platform);
-			if (Application.platform == RuntimePlatform.OSXEditor
-			    || Application.platform == RuntimePlatform.WindowsEditor) {
+			switch(Application.platform) {
+			case RuntimePlatform.IPhonePlayer:
+				iOSTorch.Init ();
+				iOSTorch.On (0.001f);
+				break;
+			case RuntimePlatform.OSXEditor:
+			case RuntimePlatform.WindowsEditor:
 				yIsUp = true;
 				Debug.Log ("Using Unity Remote");
+				break;
 			}
 
 			Input.compensateSensors = true;
@@ -166,8 +167,17 @@ namespace CubeSpaceFree
 			//Input.compass.enabled = true;
 		}
 
+		//float torch_brightness = 0.1f;
+		//bool torch_on = false;
         void FixedUpdate()
         {   //Debug.Log("dT = " + Time.deltaTime);
+//			if (torch_on) {
+//				iOSTorch.On (0.01f);
+//			} else {
+//				iOSTorch.Off ();
+//			}
+//			torch_on = !torch_on;
+
 			Vector3 i_inmu_lmu = Input.acceleration; //sensor measures INERTIAL force 
 			Vector3 w_inb_lb = //Input.gyro.rotationRate // in mu frame (RH!)
 					Input.gyro.rotationRateUnbiased
@@ -386,25 +396,6 @@ namespace CubeSpaceFree
 
         void Update()
         {
-			// loop through each touch
-			foreach (Touch touch in Input.touches)
-			{
-				//if the touch has just started, or moved
-				if (touch.phase == TouchPhase.Began || touch.phase == TouchPhase.Moved)
-				{
-					float intensity = touch.position.y / Screen.height;
-					Debug.Log ("Turning on torch with intensity " + intensity);
-					iOSTorch.On(intensity); 
-				}
-
-				// if the touch has ended or was canceled
-				else if (touch.phase == TouchPhase.Canceled || touch.phase == TouchPhase.Ended)
-				{
-					Debug.Log ("Turning off torch");
-					iOSTorch.Off();
-				}
-			}
-
 			RaycastHit hitInfo;
 			if (Physics.Raycast(r_inl_lb //The starting point of the ray in world coordinates.
 				, turret_xform.forward // direction
