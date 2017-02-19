@@ -148,10 +148,6 @@ namespace OpenCVForUnitySample
             }
 			*/
 			//Mat (height, width, int type, Scalar s)
-			rMat = new Mat ();
-			gMat = new Mat ();
-			bMat = new Mat ();
-			rxgxbMat = new Mat ();
             matOpFlowThis = new Mat ();
             matOpFlowPrev = new Mat ();
             MOPcorners = new MatOfPoint ();
@@ -169,11 +165,11 @@ namespace OpenCVForUnitySample
         {
             Debug.Log ("OnWebCamTextureToMatHelperDisposed");
 
-			if (rMat != null) rMat.Dispose ();
-			if (gMat != null) gMat.Dispose ();
-			if (bMat != null) bMat.Dispose ();
 			if (rxgxbMat != null) rxgxbMat.Dispose ();
-            if (matOpFlowThis != null)
+			if (tempA != null) tempA.Dispose ();
+			if (tempB != null) tempB.Dispose ();
+
+			if (matOpFlowThis != null)
                 matOpFlowThis.Dispose ();
             if (matOpFlowPrev != null)
                 matOpFlowPrev.Dispose ();
@@ -201,8 +197,12 @@ namespace OpenCVForUnitySample
 
 		float lastOdoTime = .0f;
 
-		Mat rMat, gMat, bMat, rxgxbMat,
-			redMat, greenMat, blueMat;
+		Mat rxgxbMat, tempA, tempB,
+			emptyMat = new Mat(),
+			erode_kernel = new Mat()
+				//Imgproc.getStructuringElement (Imgproc.MORPH_ELLIPSE, new Size(7,7))
+		;
+		Point erode_anchor = new Point(0,0);
 
         // Update is called once per frame
         void Update ()
@@ -219,19 +219,34 @@ namespace OpenCVForUnitySample
 			int width = rgbaMat.width (), height = rgbaMat.height ();
 
 			// Assume the brightest white region(s) are the torches
-			if (redMat == null) redMat = new Mat (height, width, rgbaMat.type (), new Scalar (0xFF, 0, 0, 0));
-			if (greenMat == null) greenMat = new Mat (height, width, rgbaMat.type (), new Scalar (0, 0xFF, 0, 0));
-			if (blueMat == null) blueMat = new Mat (height, width, rgbaMat.type (), new Scalar (0, 0, 0xFF, 0));
+			List<Mat> channels = new List<Mat>();
+			Core.split (rgbaMat, channels);
+			//Debug.Log ("channels: " + channels.Count);
+			if (tempA == null) tempA = new Mat (height, width, channels [0].type ());
+			if (tempB == null) tempB = new Mat (height, width, channels [0].type ());
 
-			Imgproc.cvtColor (rgbaMat & redMat, rMat, Imgproc.COLOR_RGBA2GRAY);
-			Imgproc.cvtColor (rgbaMat & greenMat, gMat, Imgproc.COLOR_RGBA2GRAY);
-			Imgproc.cvtColor (rgbaMat & blueMat, bMat, Imgproc.COLOR_RGBA2GRAY);
-			rxgxbMat = rMat.mul(gMat.mul(bMat, 1.0f/256), 1.0f/256) // scalar multiplication form
-				;
+			//Core.mulSpectrums(channels[0], channels[1], rxgxbMat
+
+			rxgxbMat = channels[0].mul(channels[1].mul(channels[2], 1.0f/256), 1.0f/256);
+			Imgproc.medianBlur (rxgxbMat, tempA, 7);
+			//Imgproc.erode (tempA, tempB, erode_kernel, erode_anchor, 2);
+			Imgproc.morphologyEx (tempA, tempB, Imgproc.MORPH_OPEN, erode_kernel, erode_anchor, 2);
+
+			/*
+			Imgproc.calcHist (new List<Mat> (new Mat[]{ rxgxbMat }),
+			    new MatOfInt (0), emptyMat,empty maskMat => no mask
+				histMat, //output
+				new MatOfInt (16), //histSize(s): # bins
+				new MatOfFloat (0, 180)//the left and right most bins
+			);
+			Debug.Log ("hist " + histMat);
+			*/
+
+			//Debug.Log("max of cross image = " + rxgxbMat.
 			//Debug.Log (String.Format ("original size {0}x{1}", rgbaMat.width(), rgbaMat.height()));
 			//Debug.Log (String.Format ("new size {0}x{1}", rxgxbMat.width(), rxgxbMat.height()));
 
-			Utils.matToTexture2D (rxgxbMat, texture, webCamTextureToMatHelper.GetBufferColors());
+			Utils.matToTexture2D (tempB, texture, webCamTextureToMatHelper.GetBufferColors());
 
 			/* Optical flow on  the entire image is too noise prone
             if (mMOP2fptsPrev.rows () == 0) {
