@@ -1,4 +1,5 @@
 using UnityEngine;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using CubeSpaceFree;//coupled to the 3D_Example/PlayerController
@@ -127,8 +128,8 @@ namespace OpenCVForUnitySample
 			//Debug.Log("Quad transform @" + d2quad);
 			Assert.IsTrue(d2quad > 1000);
 			float texture2quadHeight = d2quad * 2 * Mathf.Tan(iPhone6s_FoV);
-			gameObject.transform.localScale = new Vector3(
-				(texture2quadHeight / webCamTextureMat.height()) * webCamTextureMat.width(), texture2quadHeight, 1);
+			int height = webCamTextureMat.height (), width = webCamTextureMat.width ();
+			gameObject.transform.localScale = new Vector3((texture2quadHeight / height) * width, texture2quadHeight, 1);
 			//Debug.Log ("localScale = " + gameObject.transform.localScale);
             
             /* Following block is unnecessary if perspective projection is used for the camera
@@ -146,7 +147,11 @@ namespace OpenCVForUnitySample
                 Camera.main.orthographicSize = height / 2;
             }
 			*/
-
+			//Mat (height, width, int type, Scalar s)
+			rMat = new Mat ();
+			gMat = new Mat ();
+			bMat = new Mat ();
+			rxgxbMat = new Mat ();
             matOpFlowThis = new Mat ();
             matOpFlowPrev = new Mat ();
             MOPcorners = new MatOfPoint ();
@@ -164,6 +169,10 @@ namespace OpenCVForUnitySample
         {
             Debug.Log ("OnWebCamTextureToMatHelperDisposed");
 
+			if (rMat != null) rMat.Dispose ();
+			if (gMat != null) gMat.Dispose ();
+			if (bMat != null) bMat.Dispose ();
+			if (rxgxbMat != null) rxgxbMat.Dispose ();
             if (matOpFlowThis != null)
                 matOpFlowThis.Dispose ();
             if (matOpFlowPrev != null)
@@ -192,6 +201,9 @@ namespace OpenCVForUnitySample
 
 		float lastOdoTime = .0f;
 
+		Mat rMat, gMat, bMat, rxgxbMat,
+			redMat, greenMat, blueMat;
+
         // Update is called once per frame
         void Update ()
         {
@@ -203,15 +215,30 @@ namespace OpenCVForUnitySample
 				return;
 			lastOdoTime = now;
 
-			// Look for the torch
-			//Calculate each pixel's brightness
 			Mat rgbaMat = webCamTextureToMatHelper.GetMat ();
+			int width = rgbaMat.width (), height = rgbaMat.height ();
 
+			// Assume the brightest white region(s) are the torches
+			if (redMat == null) redMat = new Mat (height, width, rgbaMat.type (), new Scalar (0xFF, 0, 0, 0));
+			if (greenMat == null) greenMat = new Mat (height, width, rgbaMat.type (), new Scalar (0, 0xFF, 0, 0));
+			if (blueMat == null) blueMat = new Mat (height, width, rgbaMat.type (), new Scalar (0, 0, 0xFF, 0));
+
+			Imgproc.cvtColor (rgbaMat & redMat, rMat, Imgproc.COLOR_RGBA2GRAY);
+			Imgproc.cvtColor (rgbaMat & greenMat, gMat, Imgproc.COLOR_RGBA2GRAY);
+			Imgproc.cvtColor (rgbaMat & blueMat, bMat, Imgproc.COLOR_RGBA2GRAY);
+			rxgxbMat = rMat.mul(gMat.mul(bMat, 1.0f/256), 1.0f/256) // scalar multiplication form
+				;
+			//Debug.Log (String.Format ("original size {0}x{1}", rgbaMat.width(), rgbaMat.height()));
+			//Debug.Log (String.Format ("new size {0}x{1}", rxgxbMat.width(), rxgxbMat.height()));
+
+			Utils.matToTexture2D (rxgxbMat, texture, webCamTextureToMatHelper.GetBufferColors());
+
+			/* Optical flow on  the entire image is too noise prone
             if (mMOP2fptsPrev.rows () == 0) {
             
                 // first time through the loop so we need prev and this mats
                 // plus prev points
-                // get this mat
+                // Convert color to gray
                 Imgproc.cvtColor (rgbaMat, matOpFlowThis, Imgproc.COLOR_RGBA2GRAY);
                                 
                 // copy that to prev mat
@@ -244,15 +271,6 @@ namespace OpenCVForUnitySample
                 mMOP2fptsThis.copyTo (mMOP2fptsSafe);
             }
 
-            /*
-                Parameters:
-                    prevImg first 8-bit input image
-                    nextImg second input image
-                    prevPts vector of 2D points for which the flow needs to be found; point coordinates must be single-precision floating-point numbers.
-                    nextPts output vector of 2D points (with single-precision floating-point coordinates) containing the calculated new positions of input features in the second image; when OPTFLOW_USE_INITIAL_FLOW flag is passed, the vector must have the same size as in the input.
-                    status output status vector (of unsigned chars); each element of the vector is set to 1 if the flow for the corresponding features has been found, otherwise, it is set to 0.
-                    err output vector of errors; each element of the vector is set to an error for the corresponding feature, type of the error measure can be set in flags parameter; if the flow wasn't found then the error is not defined (use the status parameter to find such cases).
-                */
             Video.calcOpticalFlowPyrLK (matOpFlowPrev, matOpFlowThis, mMOP2fptsPrev, mMOP2fptsThis, mMOBStatus, mMOFerr);
             
             if (!mMOBStatus.empty ()) { //overlay the optical flow vectors
@@ -275,21 +293,15 @@ namespace OpenCVForUnitySample
                 }
             }
             
-//              Imgproc.putText (rgbaMat, "W:" + rgbaMat.width () + " H:" + rgbaMat.height () + " SO:" + Screen.orientation, new Point (5, rgbaMat.rows () - 10), Core.FONT_HERSHEY_SIMPLEX, 1.0, new Scalar (255, 255, 255, 255), 2, Imgproc.LINE_AA, false);
-            
+            //Imgproc.putText (rgbaMat, "W:" + rgbaMat.width () + " H:" + rgbaMat.height () + " SO:" + Screen.orientation, new Point (5, rgbaMat.rows () - 10), Core.FONT_HERSHEY_SIMPLEX, 1.0, new Scalar (255, 255, 255, 255), 2, Imgproc.LINE_AA, false);
             Utils.matToTexture2D (rgbaMat, texture, webCamTextureToMatHelper.GetBufferColors());
+            */
 
 			if (!playerCtrl.Started)
 				return;
 
-			Quaternion q = new Quaternion {
-				x = Random.Range (-.01f, .01f), y = Random.Range (-.01f, .01f), z = Random.Range (-.01f, .01f)
-			};
-			q.w = 1.0f - q.x * q.x - q.y * q.y - q.z * q.z;
-			playerCtrl.VisualUpdate (new Vector3 {
-					x = Random.Range(-.01f,.01f), y = Random.Range(-.01f,.01f), z = Random.Range(-.01f,.01f)
-				}
-				, q);
+			Quaternion q = Quaternion.identity;
+			playerCtrl.VisualUpdate (new Vector3(), q);
         }
     
         /// <summary>
@@ -298,50 +310,6 @@ namespace OpenCVForUnitySample
         void OnDisable ()
         {
             webCamTextureToMatHelper.Dispose ();
-        }
-
-        /// <summary>
-        /// Raises the back button event.
-        /// </summary>
-        public void OnBackButton ()
-        {
-            #if UNITY_5_3 || UNITY_5_3_OR_NEWER
-            SceneManager.LoadScene ("OpenCVForUnitySample");
-            #else
-            Application.LoadLevel ("OpenCVForUnitySample");
-            #endif
-        }
-
-        /// <summary>
-        /// Raises the play button event.
-        /// </summary>
-        public void OnPlayButton ()
-        {
-            webCamTextureToMatHelper.Play ();
-        }
-
-        /// <summary>
-        /// Raises the pause button event.
-        /// </summary>
-        public void OnPauseButton ()
-        {
-            webCamTextureToMatHelper.Pause ();
-        }
-
-        /// <summary>
-        /// Raises the stop button event.
-        /// </summary>
-        public void OnStopButton ()
-        {
-            webCamTextureToMatHelper.Stop ();
-        }
-
-        /// <summary>
-        /// Raises the change camera button event.
-        /// </summary>
-        public void OnChangeCameraButton ()
-        {
-            webCamTextureToMatHelper.Init (null, webCamTextureToMatHelper.requestWidth, webCamTextureToMatHelper.requestHeight, !webCamTextureToMatHelper.requestIsFrontFacing);
         }
     }
 }
