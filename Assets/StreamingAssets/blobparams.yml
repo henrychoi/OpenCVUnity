@@ -1,0 +1,23 @@
+%YAML:1.0
+thresholdStep: 10.
+minThreshold: 10.
+maxThreshold: 20.
+filterByColor: True
+blobColor: 255 # Look for light area (rather than dark)
+
+#minDistBetweenBlobs: 10.
+
+filterByArea: True
+minArea: 100.
+maxArea: 5000.
+
+filterByCircularity: True
+minCircularity: 0.75
+maxCircularity: 1.5
+
+#filterByConvecity: True
+#minConvecity: 0.8
+
+#filterByInertia: True
+#maxInertiaRatio: 3.
+#minInertiaRatio: 0.5

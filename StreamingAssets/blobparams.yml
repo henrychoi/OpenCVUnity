@@ -1,0 +1,6 @@
+%YAML:1.0
+thresholdStep: 16.
+minThreshold: 128.
+maxThreshold: 240.
+filterByColor: false
+

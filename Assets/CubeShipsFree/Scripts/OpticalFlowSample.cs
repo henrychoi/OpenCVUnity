@@ -96,6 +96,11 @@ namespace OpenCVForUnitySample
 			//Quad's parent is the Player, which has the PlayerController script component
 			playerCtrl = gameObject.GetComponentInParent<PlayerController> ();
 			Assert.IsNotNull (playerCtrl);
+
+			string blobparams_yml_filepath = Utils.getFilePath ("blobparams.yml");
+			//Debug.Log ("Found yml " + blobparams_yml_filepath);
+			blobDetector = FeatureDetector.create (FeatureDetector.SIMPLEBLOB);
+			blobDetector.read (blobparams_yml_filepath);
         }
 
 		const float iPhone6s_FoV = Mathf.Deg2Rad * 65/2;
@@ -165,7 +170,7 @@ namespace OpenCVForUnitySample
         {
             Debug.Log ("OnWebCamTextureToMatHelperDisposed");
 
-			if (rxgxbMat != null) rxgxbMat.Dispose ();
+			//if (rxgxbMat != null) rxgxbMat.Dispose ();
 			if (tempA != null) tempA.Dispose ();
 			if (tempB != null) tempB.Dispose ();
 
@@ -197,12 +202,15 @@ namespace OpenCVForUnitySample
 
 		float lastOdoTime = .0f;
 
-		Mat rxgxbMat, tempA, tempB,
-			emptyMat = new Mat(),
-			erode_kernel = new Mat()
+		Mat tempA, tempB,// rxgxbMat,
+			emptyMat = new Mat()
+			//erode_kernel = new Mat()
 				//Imgproc.getStructuringElement (Imgproc.MORPH_ELLIPSE, new Size(7,7))
 		;
 		Point erode_anchor = new Point(0,0);
+
+		FeatureDetector blobDetector;
+		Scalar channelMultiplyScale = new Scalar(1.0f/256);
 
         // Update is called once per frame
         void Update ()
@@ -221,16 +229,36 @@ namespace OpenCVForUnitySample
 			// Assume the brightest white region(s) are the torches
 			List<Mat> channels = new List<Mat>();
 			Core.split (rgbaMat, channels);
-			//Debug.Log ("channels: " + channels.Count);
+			//Debug.Log ("split channel type = " + channels [0].type ());
+
 			if (tempA == null) tempA = new Mat (height, width, channels [0].type ());
 			if (tempB == null) tempB = new Mat (height, width, channels [0].type ());
+			//if (rxgxbMat == null) rxgxbMat = new Mat (height, width, channels [0].type ());
 
+			//Debug.Log ("channels: " + channels.Count);
 			//Core.mulSpectrums(channels[0], channels[1], rxgxbMat
+			Mat rxgxbMat = channels[0].mul(channels[1].mul(channels[2], 1.0f/256), 1.0f/256);
+			//Core.multiply (channels[1], channels[2], tempA, 1.0f/256);
+			//Core.multiply (tempA, channels [0], tempB, 1.0f/256);
 
-			rxgxbMat = channels[0].mul(channels[1].mul(channels[2], 1.0f/256), 1.0f/256);
 			Imgproc.medianBlur (rxgxbMat, tempA, 7);
-			//Imgproc.erode (tempA, tempB, erode_kernel, erode_anchor, 2);
-			Imgproc.morphologyEx (tempA, tempB, Imgproc.MORPH_OPEN, erode_kernel, erode_anchor, 2);
+			Imgproc.morphologyEx (tempA, tempB, Imgproc.MORPH_OPEN, emptyMat, erode_anchor, 2);
+			Core.MinMaxLocResult minmax = Core.minMaxLoc (tempB);
+			//Debug.Log (String.Format("max {0} @ {1}", minmax.maxVal, minmax.maxLoc));
+
+			//Wipe pixels significantly dimmer than the max.  Initiailly I wanted to
+			//change the blob detector's minThreshold dynamically, but since the params are in
+			//a file, it's too onerous to change for every Update.
+			Core.subtract (tempB,
+				new Scalar(Mathf.Max((float)(0.9f * minmax.maxVal), 200.0f)),
+				tempA);
+			//Mat normalized = tempB.mul((256.0f/0.25f) * minmax.maxVal);
+			//Core.multiply(tempA, new Scalar((128.0f/0.2f) * minmax.maxVal), tempB);
+
+			MatOfKeyPoint keypoints = new MatOfKeyPoint ();
+			blobDetector.detect (tempA, keypoints);
+			Features2d.drawKeypoints (rgbaMat, keypoints, rgbaMat);
+			Debug.Log ("keypoints found " + keypoints.size ());
 
 			/*
 			Imgproc.calcHist (new List<Mat> (new Mat[]{ rxgxbMat }),
@@ -246,7 +274,7 @@ namespace OpenCVForUnitySample
 			//Debug.Log (String.Format ("original size {0}x{1}", rgbaMat.width(), rgbaMat.height()));
 			//Debug.Log (String.Format ("new size {0}x{1}", rxgxbMat.width(), rxgxbMat.height()));
 
-			Utils.matToTexture2D (tempB, texture, webCamTextureToMatHelper.GetBufferColors());
+			Utils.matToTexture2D (rgbaMat, texture, webCamTextureToMatHelper.GetBufferColors());
 
 			/* Optical flow on  the entire image is too noise prone
             if (mMOP2fptsPrev.rows () == 0) {
