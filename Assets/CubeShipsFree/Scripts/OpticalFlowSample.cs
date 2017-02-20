@@ -242,7 +242,7 @@ namespace OpenCVForUnitySample
 			//Core.multiply (tempA, channels [0], tempB, 1.0f/256);
 
 			Imgproc.medianBlur (rxgxbMat, tempA, 7);
-			Imgproc.morphologyEx (tempA, tempB, Imgproc.MORPH_OPEN, emptyMat, erode_anchor, 2);
+			Imgproc.morphologyEx (tempA, tempB, Imgproc.MORPH_ERODE, emptyMat, erode_anchor, 2);
 			Core.MinMaxLocResult minmax = Core.minMaxLoc (tempB);
 			//Debug.Log (String.Format("max {0} @ {1}", minmax.maxVal, minmax.maxLoc));
 
@@ -257,8 +257,8 @@ namespace OpenCVForUnitySample
 
 			MatOfKeyPoint keypoints = new MatOfKeyPoint ();
 			blobDetector.detect (tempA, keypoints);
-			Features2d.drawKeypoints (rgbaMat, keypoints, rgbaMat);
-			Debug.Log ("keypoints found " + keypoints.size ());
+			Features2d.drawKeypoints (tempA, keypoints, rgbaMat);
+			//Debug.Log ("keypoints found " + keypoints.size ());
 
 			/*
 			Imgproc.calcHist (new List<Mat> (new Mat[]{ rxgxbMat }),
