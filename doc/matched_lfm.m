@@ -8,9 +8,9 @@ if ROUND_TRIP, attenuation = 4; else attenuation = 2; end;
 Fs = 48000;%44100;
 Ts = 1/Fs;
 f0 = 200; % lowest frequency of the chirp
-b = 20000; % 10 kHz BW
-n = 2^11; % # samples to describe the original chirp
-Nsample = 2^11; %Total samples I need to collect
+b = 20000; % 20 kHz BW (use all available BW)
+n = 2^13; % # samples to describe the original chirp
+Nsample = 2^13; %Total samples I need to collect
 c = 335; % speed of sound
 taup = n * Ts;
 Rmax = Nsample * Ts * c;
@@ -19,15 +19,15 @@ freqlimit = 0.5 * Fs;
 c/b % range resolution
 
 mu = b/taup;
-scat_range = [2 5]; %[3.9 4 10];
-scat_rcs = [1 1]; %[1 1.5 2];
+scat_range = [2 5 10]; %[3.9 4 10];
+scat_rcs = [1 1 1]; %[1 1.5 2];
 nscat = length(scat_rcs);
 winid = 0;
 %eps = 1.0e-16;
 
 s_ambient = audioread('singing.wav', (5 + [0 1]) * Nsample)';
 RMS_ambient = sqrt(mean(s_ambient .^ 2));
-A_u = 1 * RMS_ambient; %amplitude(s_u) = RMS(ambient)
+A_u = 3 * RMS_ambient; %amplitude(s_u) = RMS(ambient)
 sigma_r = 0.1 * RMS_ambient;
 
 % time bandwidth product
@@ -81,7 +81,7 @@ subplot(2,1,2); plot(freq, fftshift(replica_mag)); grid
 ylabel('|R|')
 xlabel('[Hz]')
 
-%for i=1:100, sound(replica + s_r, Fs); end;
+for i=1:50, sound(replica + s_r, Fs); end;
 
 for j = 1:1:nscat
     range = scat_range(j);
