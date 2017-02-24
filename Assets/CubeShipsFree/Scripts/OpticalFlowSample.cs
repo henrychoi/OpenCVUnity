@@ -104,6 +104,7 @@ namespace OpenCVForUnitySample
         }
 
 		const float iPhone6s_FoV = Mathf.Deg2Rad * 65/2;
+
         /// <summary>
         /// Raises the web cam texture to mat helper inited event.
         /// </summary>
@@ -200,7 +201,7 @@ namespace OpenCVForUnitySample
             Debug.Log ("OnWebCamTextureToMatHelperErrorOccurred " + errorCode);
         }
 
-		float lastOdoTime = .0f;
+		float lastOdoTime = .0f, lastChessboardTime = .0f;
 
 		Mat tempA, tempB,// rxgxbMat,
 			emptyMat = new Mat()
@@ -211,6 +212,11 @@ namespace OpenCVForUnitySample
 
 		FeatureDetector blobDetector;
 		Scalar channelMultiplyScale = new Scalar(1.0f/256);
+		Size chessboard_size = new Size(7, 7);//standard OpenCV square chessboard
+		//Q: why can't I make this a const?
+
+		const float chessboard_scale = 1.0f; // should this be 0.03f (3 cm)?
+		const int nBoard = 10; //Look for 10 successful chessboard images with all corners found
 
         // Update is called once per frame
         void Update ()
@@ -257,7 +263,6 @@ namespace OpenCVForUnitySample
 
 			MatOfKeyPoint keypoints = new MatOfKeyPoint ();
 			blobDetector.detect (tempA, keypoints);
-			Features2d.drawKeypoints (tempA, keypoints, rgbaMat);
 			//Debug.Log ("keypoints found " + keypoints.size ());
 
 			/*
@@ -270,9 +275,48 @@ namespace OpenCVForUnitySample
 			Debug.Log ("hist " + histMat);
 			*/
 
+			// Find chessboard
+			MatOfPoint2f corners = new MatOfPoint2f();
+			bool found = Calib3d.findChessboardCorners (rgbaMat, chessboard_size, corners,
+				Calib3d.CALIB_CB_ADAPTIVE_THRESH | Calib3d.CALIB_CB_NORMALIZE_IMAGE //OpenCV default
+				| Calib3d.CALIB_CB_FAST_CHECK);//no guarantee that I will hold up the chessboard, so skip fast
+			Calib3d.drawChessboardCorners(rgbaMat, chessboard_size, corners, found); //Let's see those corners!
+
+			if (found && now - lastChessboardTime > 1.0f) {
+				/*
+				Mat intrinsic_matrix, distortion_coeffs;
+				Calib3d.calibrateCameraExtended	(	List< Mat > 	objectPoints,
+					List< Mat > 	imagePoints,
+					Size 	imageSize,
+					Mat 	cameraMatrix,
+					Mat 	distCoeffs,
+					List< Mat > 	rvecs,
+					List< Mat > 	tvecs,
+					Mat 	stdDeviationsIntrinsics,
+					Mat 	stdDeviationsExtrinsics,
+					Mat 	perViewErrors 
+				)	
+
+				// SAVE THE INTRINSICS AND DISTORTIONS
+				cout << " *** DONE!\n\nReprojection error is " << err <<
+				"\nStoring Intrinsics.xml and Distortions.xml files\n\n";
+				cv::FileStorage fs( "intrinsics.xml", FileStorage::WRITE );
+
+				fs << "image_width" << image_size.width << "image_height" << image_size.height
+				<<"camera_matrix" << intrinsic_matrix << "distortion_coefficients"
+				<< distortion_coeffs;
+				fs.release();
+				*/
+
+				lastChessboardTime = now;
+			
+			}
+
 			//Debug.Log("max of cross image = " + rxgxbMat.
 			//Debug.Log (String.Format ("original size {0}x{1}", rgbaMat.width(), rgbaMat.height()));
 			//Debug.Log (String.Format ("new size {0}x{1}", rxgxbMat.width(), rxgxbMat.height()));
+
+			Features2d.drawKeypoints (rgbaMat, keypoints, rgbaMat);
 
 			Utils.matToTexture2D (rgbaMat, texture, webCamTextureToMatHelper.GetBufferColors());
 
