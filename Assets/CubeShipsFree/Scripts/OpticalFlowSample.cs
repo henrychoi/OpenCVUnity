@@ -1,7 +1,9 @@
 using UnityEngine;
 using System;
+using System.IO;
 using System.Collections;
 using System.Collections.Generic;
+//using System.Diagnostics;
 using CubeSpaceFree;//coupled to the 3D_Example/PlayerController
 using UnityEngine.Assertions;
 
@@ -85,6 +87,9 @@ namespace OpenCVForUnitySample
         WebCamTextureToMatHelper webCamTextureToMatHelper;
 
 		PlayerController playerCtrl;
+
+		const string camCalibrationFn = "camera_intrinsic.txt";
+		string camCalFilepath;
     
         // Use this for initialization
         void Start ()
@@ -97,10 +102,88 @@ namespace OpenCVForUnitySample
 			playerCtrl = gameObject.GetComponentInParent<PlayerController> ();
 			Assert.IsNotNull (playerCtrl);
 
-			string blobparams_yml_filepath = Utils.getFilePath ("blobparams.yml");
 			//Debug.Log ("Found yml " + blobparams_yml_filepath);
 			blobDetector = FeatureDetector.create (FeatureDetector.SIMPLEBLOB);
-			blobDetector.read (blobparams_yml_filepath);
+			blobDetector.read (Utils.getFilePath ("blobparams.yml"));
+
+			//Read stored camera calibration /////////////////////////////////
+			camCalFilepath = Utils.getFilePath (camCalibrationFn);
+			bool cameraCalParseSuccess = true;
+
+			if (!File.Exists(camCalFilepath)) {
+				cameraCalParseSuccess = false;
+				goto doneCameraCalParse;
+			}
+				
+			string[] lines = File.ReadAllLines(camCalFilepath);
+			Debug.Log ("Read " + lines.Length + " lines from " + camCalFilepath);
+			if (lines.Length < (2+3*3 + 2+5)) {//intrinsic and distortion should be separate lines
+				Debug.Log("Found only " + lines.Length + " lines in " + camCalFilepath);
+				cameraCalParseSuccess = false;
+				goto doneCameraCalParse;
+			}
+			int typ;
+			int iLine=0;
+			//Skip the 1st line (only a comment)
+			if (!Int32.TryParse(lines[++iLine], out typ)) {
+				Debug.Log("Failed to parse line " + iLine + ": " + lines[iLine]);
+				cameraCalParseSuccess = false;
+				goto doneCameraCalParse;
+			}
+			intrinsic_matrix = new Mat(3, 3, typ);
+			for(int i=0; i < 3; ++i) {
+				for(int j=0; j < 3; ++j) {
+					double d;
+					if (!Double.TryParse(lines[++iLine], out d)) {
+						Debug.Log("Failed to parse line " + iLine + ": " + lines[iLine]);
+						cameraCalParseSuccess = false;
+						goto doneCameraCalParse;
+					}
+					intrinsic_matrix.put(i, j, d);
+				}
+			}
+			++iLine;// Skip 1 line before distortion mx
+			if (!Int32.TryParse(lines[++iLine], out typ)) {
+				Debug.Log("Failed to parse line " + iLine + ": " + lines[iLine]);
+				cameraCalParseSuccess = false;
+				goto doneCameraCalParse;
+			}
+			distortion_coeffs = new Mat(1, 5, typ);
+			for(int j=0; j < 5; ++j) {
+				double d;
+				if (!Double.TryParse(lines[++iLine], out d)) {
+					Debug.Log("Failed to parse line " + iLine + ": " + lines[iLine]);
+					cameraCalParseSuccess = false;
+					goto doneCameraCalParse;
+				}
+				distortion_coeffs.put(0, j, d);
+			}
+		doneCameraCalParse:
+			if (cameraCalParseSuccess) { // show the read mx
+				Debug.Log (String.Format ("{0} -> intrinsic {1}, distortion {2}",
+					camCalFilepath,
+					intrinsic_matrix.dump(), //came back as 3x3
+					distortion_coeffs.dump()) //came back as 1x5
+				);
+			} else {
+				intrinsic_matrix = new Mat(); //invalidate the intrinsic mx
+			} //////////////////////////////////////////////////////////////////////////
+
+			// Dead reckon the physical corners of the chessboard
+			const float chessboard_scale = 0.026f; // Each chessboard square is a 26 mm long
+			List<Point3> corners = new List<Point3>(7*7);
+			 //Dead reckon the chessboard coner locations
+			for (int i = 0; i < 7; ++i) {
+				for (int j = 0; j < 7; ++j) {
+					corners.Add(new Point3(i*chessboard_scale, j*chessboard_scale, 0));
+				}
+			}
+			MatOfPoint3f wld_corners = new MatOfPoint3f();
+			wld_corners.fromList (corners);
+			for (int i = 0; i < nBoard; ++i) { // Will use the same board for all 10 images
+				wld_corner_list.Add (wld_corners);
+			}
+			Debug.Log (String.Format ("Added {0} wld_corners", wld_corner_list.Count));
         }
 
 		const float iPhone6s_FoV = Mathf.Deg2Rad * 65/2;
@@ -175,22 +258,14 @@ namespace OpenCVForUnitySample
 			if (tempA != null) tempA.Dispose ();
 			if (tempB != null) tempB.Dispose ();
 
-			if (matOpFlowThis != null)
-                matOpFlowThis.Dispose ();
-            if (matOpFlowPrev != null)
-                matOpFlowPrev.Dispose ();
-            if (MOPcorners != null)
-                MOPcorners.Dispose ();
-            if (mMOP2fptsThis != null)
-                mMOP2fptsThis.Dispose ();
-            if (mMOP2fptsPrev != null)
-                mMOP2fptsPrev.Dispose ();
-            if (mMOP2fptsSafe != null)
-                mMOP2fptsSafe.Dispose ();
-            if (mMOBStatus != null)
-                mMOBStatus.Dispose ();
-            if (mMOFerr != null)
-                mMOFerr.Dispose ();
+			if (matOpFlowThis != null) matOpFlowThis.Dispose ();
+            if (matOpFlowPrev != null) matOpFlowPrev.Dispose ();
+            if (MOPcorners != null) MOPcorners.Dispose ();
+            if (mMOP2fptsThis != null) mMOP2fptsThis.Dispose ();
+            if (mMOP2fptsPrev != null) mMOP2fptsPrev.Dispose ();
+            if (mMOP2fptsSafe != null) mMOP2fptsSafe.Dispose ();
+            if (mMOBStatus != null) mMOBStatus.Dispose ();
+            if (mMOFerr != null) mMOFerr.Dispose ();
         }
 
         /// <summary>
@@ -215,9 +290,12 @@ namespace OpenCVForUnitySample
 		Size chessboard_size = new Size(7, 7);//standard OpenCV square chessboard
 		//Q: why can't I make this a const?
 
-		const float chessboard_scale = 1.0f; // should this be 0.03f (3 cm)?
 		const int nBoard = 10; //Look for 10 successful chessboard images with all corners found
-
+		List<Mat> img_corner_list = new List<Mat>(nBoard);
+		List<Mat> wld_corner_list = new List<Mat>(nBoard);//pre-populated in Start()
+		Mat intrinsic_matrix = new Mat(),
+		    distortion_coeffs = new Mat();
+		System.Diagnostics.Stopwatch watch = new System.Diagnostics.Stopwatch();
         // Update is called once per frame
         void Update ()
         {
@@ -231,7 +309,7 @@ namespace OpenCVForUnitySample
 
 			Mat rgbaMat = webCamTextureToMatHelper.GetMat ();
 			int width = rgbaMat.width (), height = rgbaMat.height ();
-
+			//watch.Start ();
 			// Assume the brightest white region(s) are the torches
 			List<Mat> channels = new List<Mat>();
 			Core.split (rgbaMat, channels);
@@ -264,7 +342,9 @@ namespace OpenCVForUnitySample
 			MatOfKeyPoint keypoints = new MatOfKeyPoint ();
 			blobDetector.detect (tempA, keypoints);
 			//Debug.Log ("keypoints found " + keypoints.size ());
-
+			//watch.Stop ();
+			//Debug.Log ("blob detection took " + watch.Elapsed);
+			//watch.Reset ();
 			/*
 			Imgproc.calcHist (new List<Mat> (new Mat[]{ rxgxbMat }),
 			    new MatOfInt (0), emptyMat,empty maskMat => no mask
@@ -275,43 +355,77 @@ namespace OpenCVForUnitySample
 			Debug.Log ("hist " + histMat);
 			*/
 
+			if (now - lastChessboardTime < 1.0f)
+				goto afterChessboard;
+			
 			// Find chessboard
+			watch.Start ();
 			MatOfPoint2f corners = new MatOfPoint2f();
 			bool found = Calib3d.findChessboardCorners (rgbaMat, chessboard_size, corners,
 				Calib3d.CALIB_CB_ADAPTIVE_THRESH | Calib3d.CALIB_CB_NORMALIZE_IMAGE //OpenCV default
 				| Calib3d.CALIB_CB_FAST_CHECK);//no guarantee that I will hold up the chessboard, so skip fast
+			watch.Stop ();
 			Calib3d.drawChessboardCorners(rgbaMat, chessboard_size, corners, found); //Let's see those corners!
+			Debug.Log ("chessboard detection took " + watch.Elapsed);
+			watch.Reset ();
 
-			if (found && now - lastChessboardTime > 1.0f) {
-				/*
-				Mat intrinsic_matrix, distortion_coeffs;
-				Calib3d.calibrateCameraExtended	(	List< Mat > 	objectPoints,
-					List< Mat > 	imagePoints,
-					Size 	imageSize,
-					Mat 	cameraMatrix,
-					Mat 	distCoeffs,
-					List< Mat > 	rvecs,
-					List< Mat > 	tvecs,
-					Mat 	stdDeviationsIntrinsics,
-					Mat 	stdDeviationsExtrinsics,
-					Mat 	perViewErrors 
-				)	
+			if (found) {
+				//Debug.Log (String.Format("Found {0}/{1} corners", img_corner_list.Count, nBoard));
+				if (intrinsic_matrix.dims() != 0) //Already have the camera calibration
+					goto chessboardPnP;
 
-				// SAVE THE INTRINSICS AND DISTORTIONS
-				cout << " *** DONE!\n\nReprojection error is " << err <<
-				"\nStoring Intrinsics.xml and Distortions.xml files\n\n";
-				cv::FileStorage fs( "intrinsics.xml", FileStorage::WRITE );
+				// Else need to calibrate
+				img_corner_list.Add(corners);
+				if (img_corner_list.Count < nBoard)
+					goto afterChessboard;
+				// Have enough imag coners for calibration
+				List<Mat> rvecs = new List<Mat>(), tvecs = new List<Mat>();
+				double camCalError = Calib3d.calibrateCamera (
+					wld_corner_list, img_corner_list, rgbaMat.size (), //input
+					intrinsic_matrix, distortion_coeffs, rvecs, tvecs); //output
+				Debug.Log (String.Format (
+					"calibrate error {0}\nintrinsic type {1} mx {2}\ndistortion type {3} mx {4}",
+					camCalError, //on the order of 1 pixel
+					intrinsic_matrix.type(), intrinsic_matrix.dump(), //came back as 3x3
+					distortion_coeffs.type(), distortion_coeffs.dump()) //came back as 1x5
+				);
 
-				fs << "image_width" << image_size.width << "image_height" << image_size.height
-				<<"camera_matrix" << intrinsic_matrix << "distortion_coefficients"
-				<< distortion_coeffs;
-				fs.release();
+				/* save the intrinsic params--to where?  StreamingAssets doesn't seem to work
+				Debug.Log("Writing calibration file " + camCalFilepath);
+				StreamWriter writer = File.CreateText(camCalFilepath);
+
+				writer.Write (intrinsic_matrix.type ()); writer.WriteLine ();
+				for (int i = 0; i < 3; ++i) {
+					double[] row = intrinsic_matrix.get (i, 0);
+					Debug.Log ("Intrinsic row " + row);
+					for (int j = 0; j < 3; ++j) {
+						writer.Write (row [j]); writer.WriteLine ();
+					}
+				}
+				writer.WriteLine (); // a separator line
+
+				writer.Write (distortion_coeffs.type ()); writer.WriteLine ();
+				double[] d = distortion_coeffs.get (0, 0);
+				Debug.Log ("distortion " + d);
+				for (int j = 0; j < 5; ++j) {
+					writer.Write (d [j]); writer.WriteLine ();
+				}
+				writer.Close ();
 				*/
 
-				lastChessboardTime = now;
-			
+			chessboardPnP:
+				/*
+				 Calib3d.solvePnP	(	MatOfPoint3f 	objectPoints, MatOfPoint2f 	imagePoints,
+					Mat 	cameraMatrix,
+					MatOfDouble 	distCoeffs,
+					Mat 	rvec,
+					Mat 	tvec 
+					)	
+				 */
+				;
 			}
-
+			lastChessboardTime = now;
+	afterChessboard:
 			//Debug.Log("max of cross image = " + rxgxbMat.
 			//Debug.Log (String.Format ("original size {0}x{1}", rgbaMat.width(), rgbaMat.height()));
 			//Debug.Log (String.Format ("new size {0}x{1}", rxgxbMat.width(), rxgxbMat.height()));
