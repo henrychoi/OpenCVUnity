@@ -218,14 +218,18 @@ namespace OpenCVForUnitySample
 			if (!(webCamTextureToMatHelper.IsPlaying () && webCamTextureToMatHelper.DidUpdateThisFrame ()))
 				return;
 
+			Mat rgbaMat = webCamTextureToMatHelper.GetMat ();
+
 			float now = Time.time, dT = now - lastOdoTime;
 			if (dT < 0.1f) // Don't run visual odometry/sensor-fusion too fast (sucks current)
-				return;
+				goto showView;
+
 			lastOdoTime = now;
 
-			Mat rgbaMat = webCamTextureToMatHelper.GetMat ();
 			int width = rgbaMat.width (), height = rgbaMat.height ();
+			goto showView;
 
+			//There is a memory leak here somewhere...
 			// Assume the brightest white region(s) are the torches
 			List<Mat> channels = new List<Mat>();
 			Core.split (rgbaMat, channels);
@@ -260,23 +264,11 @@ namespace OpenCVForUnitySample
 			Features2d.drawKeypoints (tempA, keypoints, rgbaMat);
 			//Debug.Log ("keypoints found " + keypoints.size ());
 
-			/*
-			Imgproc.calcHist (new List<Mat> (new Mat[]{ rxgxbMat }),
-			    new MatOfInt (0), emptyMat,empty maskMat => no mask
-				histMat, //output
-				new MatOfInt (16), //histSize(s): # bins
-				new MatOfFloat (0, 180)//the left and right most bins
-			);
-			Debug.Log ("hist " + histMat);
-			*/
-
 			//Debug.Log("max of cross image = " + rxgxbMat.
 			//Debug.Log (String.Format ("original size {0}x{1}", rgbaMat.width(), rgbaMat.height()));
 			//Debug.Log (String.Format ("new size {0}x{1}", rxgxbMat.width(), rxgxbMat.height()));
 
-			Utils.matToTexture2D (rgbaMat, texture, webCamTextureToMatHelper.GetBufferColors());
-
-			/* Optical flow on  the entire image is too noise prone
+			//Optical flow on  the entire image is too noise prone
             if (mMOP2fptsPrev.rows () == 0) {
             
                 // first time through the loop so we need prev and this mats
@@ -294,27 +286,21 @@ namespace OpenCVForUnitySample
                 // get safe copy of this corners
                 mMOP2fptsPrev.copyTo (mMOP2fptsSafe);
             } else {
-                // we've been through before so
-				// this mat (matOpFlowThis) is valid. Copy it to prev mat
+                // we've been through before so this mat (matOpFlowThis) is valid. Copy it to prev mat
                 matOpFlowThis.copyTo (matOpFlowPrev);
-                                
-                // get this mat
-                Imgproc.cvtColor (rgbaMat, matOpFlowThis, Imgproc.COLOR_RGBA2GRAY);
-                                
+
+                Imgproc.cvtColor (rgbaMat, matOpFlowThis, Imgproc.COLOR_RGBA2GRAY);//convert to grayscale
+
                 // get the corners for this mat
                 Imgproc.goodFeaturesToTrack (matOpFlowThis, MOPcorners, iGFFTMax, 0.05, 20);
                 mMOP2fptsThis.fromArray (MOPcorners.toArray ());
-                                
-                // retrieve the corners from the prev mat
-                // (saves calculating them again)
-                mMOP2fptsSafe.copyTo (mMOP2fptsPrev);
-                                
-                // and save this corners for next time through
-                                
-                mMOP2fptsThis.copyTo (mMOP2fptsSafe);
+             	mMOP2fptsSafe.copyTo (mMOP2fptsPrev);// retrieve the corners from the prev mat
+				mMOP2fptsThis.copyTo (mMOP2fptsSafe);// and save this corners for next time through
             }
 
-            Video.calcOpticalFlowPyrLK (matOpFlowPrev, matOpFlowThis, mMOP2fptsPrev, mMOP2fptsThis, mMOBStatus, mMOFerr);
+            Video.calcOpticalFlowPyrLK (matOpFlowPrev, matOpFlowThis,
+				mMOP2fptsPrev, mMOP2fptsThis, //beginning and end of the optical flow arrows
+				mMOBStatus, mMOFerr);
             
             if (!mMOBStatus.empty ()) { //overlay the optical flow vectors
                 List<Point> cornersPrev = mMOP2fptsPrev.toList ();
@@ -328,23 +314,22 @@ namespace OpenCVForUnitySample
                     if (byteStatus [x] == 1) {
                         Point pt = cornersThis [x];
                         Point pt2 = cornersPrev [x];
-                                    
                         Imgproc.circle (rgbaMat, pt, 5, colorRed, iLineThickness - 1);
-                                    
                         Imgproc.line (rgbaMat, pt, pt2, colorRed, iLineThickness);
                     }
                 }
             }
-            
-            //Imgproc.putText (rgbaMat, "W:" + rgbaMat.width () + " H:" + rgbaMat.height () + " SO:" + Screen.orientation, new Point (5, rgbaMat.rows () - 10), Core.FONT_HERSHEY_SIMPLEX, 1.0, new Scalar (255, 255, 255, 255), 2, Imgproc.LINE_AA, false);
-            Utils.matToTexture2D (rgbaMat, texture, webCamTextureToMatHelper.GetBufferColors());
-            */
+            //Imgproc.putText (rgbaMat, "W:" + rgbaMat.width () + " H:" + rgbaMat.height () +
+			//    " SO:" + Screen.orientation, new Point (5, rgbaMat.rows () - 10),
+			//    Core.FONT_HERSHEY_SIMPLEX, 1.0, new Scalar (255, 255, 255, 255), 2, Imgproc.LINE_AA, false);
 
 			if (!playerCtrl.Started)
-				return;
-
+				goto showView;
 			Quaternion q = Quaternion.identity;
 			playerCtrl.VisualUpdate (new Vector3(), q);
+
+		showView: //always show the latest camera view in background (better user experience)
+			Utils.matToTexture2D (rgbaMat, texture, webCamTextureToMatHelper.GetBufferColors());
         }
     
         /// <summary>

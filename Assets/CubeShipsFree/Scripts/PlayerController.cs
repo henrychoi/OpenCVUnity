@@ -1,7 +1,10 @@
 ﻿using UnityEngine;
 using System;
+using System.IO;
 using UnityEngine.Assertions;
 using UnityEngine.UI;
+using OpenCVForUnity;
+using SimpleJSON;
 
 // Heavily based on Unity Space Shooter tutorial
 namespace CubeSpaceFree
@@ -107,21 +110,67 @@ namespace CubeSpaceFree
 			}
 		}
 
+		string mic = null; //On mobile device, use the default mic,
+		// which might be a problem if the phone is mixing sound from multiple mics
+
+		int Fs_mic_max;
+
 		// Use this for initialization
         void Start()
 		{
-			//Debug.Log ("platform =" + Application.platform);
+			chirp = GetComponent<AudioSource> ();
+
 			switch(Application.platform) {
 			case RuntimePlatform.IPhonePlayer:
 				iOSTorch.Init ();
 				iOSTorch.On (0.001f);
 				break;
 			case RuntimePlatform.OSXEditor:
-			case RuntimePlatform.WindowsEditor:
+				foreach (string device in Microphone.devices) {
+					if (device.Contains ("Built-in")) { // OMG, Fs_max = 96 kHz
+						mic = device;
+						break;
+					}
+				}
 				yIsUp = true;
 				Debug.Log ("Using Unity Remote");
 				break;
+			case RuntimePlatform.WindowsEditor:
+				foreach (string device in Microphone.devices) {
+					//TODO: fix when I get a chance to try Unity editor on Windows
+					if (device.Contains ("Built-in")) {
+						mic = device;
+						break;
+					}
+				}
+				yIsUp = true;
+				break;
 			}
+
+			int Fs_min;
+			Microphone.GetDeviceCaps (mic, out Fs_min, out Fs_mic_max);
+			// When a value of zero is returned in the minFreq and maxFreq parameters, this indicates
+			// that the device supports any frequency.
+			//Debug.Log ("Fs_mic_max: " + Fs_mic_max);
+			if (Fs_mic_max == 0) Fs_mic_max = 96000;
+
+			// Compressed pulse match filter needs the FFT of the xmit; load from json
+			string fft_file_path = Utils.getFilePath ("FFT_xmit_conj.json");
+			Assert.IsTrue (File.Exists (fft_file_path));
+			JSONNode jn = JSON.Parse (File.ReadAllText (fft_file_path));
+			JSONArray jarr = jn["_ArrayData_"] as JSONArray;
+			Debug.Log("_ArrayData_ size: " + jarr.Count);
+			heard = new float[jarr.Count];
+			FFT_xmit_conj = new Mat (jarr.Count, 1, CvType.CV_32FC2);
+			FFT_heard = Mat.zeros (jarr.Count, 1, CvType.CV_32FC2);
+			//float[] fpair = new float[2];
+			for(int i=0; i < jarr.Count; ++i) {
+				JSONNode n = jarr [i];
+				JSONArray pair = n as JSONArray;
+				//fpair[0] = pair[0].AsFloat; //fpair[1] = pair[1].AsFloat;
+				FFT_xmit_conj.put(i,0, pair[0].AsFloat, pair[1].AsFloat);
+			}
+			//Debug.Log ("FFT_xmit_conj: " + fft_array.dump());
 
 			Input.compensateSensors = true;
 			//Must be faster or equal rate than FixedUpdate interval
@@ -163,14 +212,20 @@ namespace CubeSpaceFree
 			//statusText.text = "Please hold still";
 			statusText.gameObject.SetActive(true);
 			nZVU = 0;
-			state = State.Initializing;
+			state = State.Waiting4Still;
 			//Input.compass.enabled = true;
 		}
+
+
+		AudioSource chirp;
+		AudioClip heardClip;
+		float[] heard;
+		Mat FFT_heard, FFT_xmit_conj;
 
 		//float torch_brightness = 0.1f;
 		//bool torch_on = false;
         void FixedUpdate()
-        {   //Debug.Log("dT = " + Time.deltaTime);
+        {
 //			if (torch_on) {
 //				iOSTorch.On (0.01f);
 //			} else {
@@ -199,13 +254,21 @@ namespace CubeSpaceFree
 			case State.Waiting4Still:
 				if (++nZVU < F_fixed_update)
 					break;
+				//Listen for the pulse
+				heardClip = Microphone.Start (mic, false, 1, Fs_mic_max);
+				chirp.Play ();
 				nZVU = 0;
 				state = State.Initializing;
 				break;
 			case State.Initializing:
 				//m_inb_lb_ens.Add(Input.compass.rawVector);//just prime the averaging queue
-				if (++nZVU < F_fixed_update)
+				if (++nZVU < F_fixed_update) // sampling the mic during this time
 					break;
+				//Debug.Log ("heard: " + heard.channels);
+				heardClip.GetData (heard, 0);
+				FFT_heard.put (0, 0, heard);
+				heardClip = null; //throw away the sample
+
 				//Debug.Log ("heading " + Input.compass.magneticHeading);
 				Debug.Log ("i_inmu_lmu " + i_inmu_lmu_ens.Average);
 				//Input.compass.enabled = false; //turn off compass to save some power
@@ -419,7 +482,7 @@ namespace CubeSpaceFree
             {
                 nextFire = Time.time + fireRate;
                 Instantiate(shot, turret_xform.position, turret_xform.rotation);
-                GetComponent<AudioSource>().Play();
+                chirp.Play();
             }
 			        */
         }
