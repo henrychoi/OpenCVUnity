@@ -53,7 +53,7 @@ switch(AMBIENT_SOUND)
 end
 RMS_ambient = sqrt(mean(s_ambient .^ 2));
 sigma_r = 0.1 * RMS_ambient;
-A_u = CHIRP_STRENGTH * RMS_ambient * sqrt(2); %amplitude(s_u) = RMS(ambient)
+A_u = CHIRP_STRENGTH * RMS_ambient * sqrt(2);
 
 % time bandwidth product
 time_B_product = b * taup;
@@ -357,8 +357,68 @@ else
     fprintf('Distance based on relative corr. d = %f\n', d_est);
 end
 
-return
-
 %% Analyze real data captured with Built-in mic
+fname = '~/github/OpenCVUnity/doc/heard.mat';
 load(fname);
+figure(1);
+t = (1:length(heard)) / Fs;
+ha(1) = subplot(211); plot(t, heard(:,1)); xlabel('[s]');
+%ha(2) = subplot(212); plot(t, heard(:,2));
+%linkaxes(ha, 'x');
 
+% What is the frequency content of the heard signal?
+freq = linspace(-freqlimit,freqlimit, length(heard));
+FFT_heard = fft(heard);
+subplot(212); plot(freq, abs(fftshift(FFT_heard)));
+xlabel('[Hz]');
+
+N = M * floor(length(heard) / M);
+[s_ambient, Fs_a] = audioread('singing.wav', [1 N]);
+s_r = heard(1:N,1)' + s_ambient(1:N)';
+fft_corr = zeros(size(s_r) - [0 M]);
+rx_pad = [zeros(size(pulse)) s_r(1:M)];
+corr = ifft(fft(rx_pad) .* FFT_pulse_conj);
+fft_corr(1:M) = corr(M + (1:M)); % Throw away the L half, save the R half
+figure(3);
+subplot(414); plot(t(1:length(fft_corr)), fft_corr);
+
+for i=M:M:(N-2*M) % Feed subsequent received samples
+    rx_pad((M+1):end) = s_r(i+(1:M));
+    corr = ifft(fft(rx_pad) .* FFT_pulse_conj);
+    fft_corr(i + ((-M+1):M)) = fft_corr(i + ((-M+1):M)) + corr;
+    subplot(414); plot(t(1:length(fft_corr)), fft_corr);
+end
+% Pick up the last block's L half (and add to the previous block's R half)
+if isempty(i), i = M; else i = i + M; end
+rx_pad((M+1):end) = s_r(i+(1:M));
+corr = ifft(fft(rx_pad) .* FFT_pulse_conj);
+fft_corr(i+((-M+1):0)) = fft_corr(i+ ((-M+1):0)) + corr(1:M);
+
+close(3);
+
+distance = t(1:length(fft_corr)) * c;
+figure(4); clf
+ha4(1) = subplot(311);
+plot(distance, fft_corr); title('FFT based correlation'); grid
+xlabel ('Target relative distance [m]'); ylabel ('Correlation');
+
+d2Corr = [0 diff(diff(fft_corr)) 0];
+subplot(312); plot(distance(1:length(d2Corr)), d2Corr);
+grid;
+
+med_corr = medfilt1(fft_corr, 5);
+dCorr = fft_corr - med_corr;
+subplot(313); plot(distance(1:length(dCorr)), dCorr);
+grid;
+
+[~, k_dCor] = max(dCorr);
+[~, k_d2cor] = min(d2Corr);
+fprintf('diff of estimate = %d\n', k_dCor - k_d2cor);
+d_est = Ts * k_dCor * c;
+if abs(k_dCor - k_d2cor) <= 2
+    fprintf('Have agreement on distance = %f\n', d_est);
+else
+    fprintf('Distance based on relative corr. d = %f\n', d_est);
+end
+
+return

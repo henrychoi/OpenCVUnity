@@ -5,6 +5,7 @@ for i=0:(audiodevinfo(1)-1)
     end
     break;
 end
+Fs = 44100
 % OK, now I have the ID of the recorder
 recorder = audiorecorder(Fs, 16, 2, i)
 disp('recording...');
@@ -14,9 +15,6 @@ disp('recording done');
 play(recorder);
 heard = getaudiodata(recorder);
 plot(heard);
-figure(1);
-subplot(211); plot(heard(:,1));
-subplot(212); plot(heard(:,2));
 
-fname = '~/radar/txrx.mat';
-save(fname, 'FFT_xmit_conj', 'xmit', 'heard');
+fname = '~/github/OpenCVUnity/doc/heard.mat';
+save(fname, 'heard');
