@@ -5,6 +5,7 @@ using UnityEngine.Assertions;
 using UnityEngine.UI;
 using OpenCVForUnity;
 using SimpleJSON;
+using System.Runtime.InteropServices;
 
 // Heavily based on Unity Space Shooter tutorial
 namespace CubeSpaceFree
@@ -455,6 +456,8 @@ namespace CubeSpaceFree
 			default://not updating
 				break;
 			}
+
+			//Debug.Log(Marshal.PtrToStringAuto (LFMDetector.PrintHello()));
         }
 
         void Update()

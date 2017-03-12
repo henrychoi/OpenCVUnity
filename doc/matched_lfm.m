@@ -1,9 +1,12 @@
 function matched_lfm
 %% Simulate
 tempDir = '~/Music/';
+unityDocDir = '~/github/OpenCVUnity/doc/'
 unityAssetsDir = '~/github/OpenCVUnity/Assets/'
 soundDir = strcat(unityAssetsDir, 'CubeShipsFree/Sound/');
 streamingAssetDir = strcat(unityAssetsDir, 'StreamingAssets/');
+osxSrcDir = '~/github/OpenCVUnity/doc/CAInput/CH08_AUGraphInput/';
+
 TRUE_DISTANCE = 7
 AMBIENT_SOUND = 1
 CHIRP_STRENGTH = 1
@@ -251,8 +254,18 @@ grid; axis([freq(1) freq(end) 1 1E5]);
 pulse_pad = [pulse zeros(size(pulse))];
 FFT_pulse = fft(pulse_pad);
 FFT_pulse_conj = conj(FFT_pulse);
+FFT_pulse_conj_vDSPz = FFT_pulse_conj(1:M); % Just take half
+FFT_pulse_conj_vDSPz(1) = FFT_pulse_conj(1) + 1j*FFT_pulse_conj(M+1);
+save(strcat(unityDocDir, 'FFT_pulse_conj.mat'), 'FFT_pulse_conj');
 % Using jsonlab-1.5, downloaded from Matlab file exchange
-savejson('', FFT_pulse_conj, strcat(streamingAssetDir, 'FFT_xmit_conj.json'));
+savejson('', FFT_pulse_conj_vDSPz, ...
+    strcat(streamingAssetDir, 'FFT_pulse_conj_vDSPz.json'));
+% Write the flattened form (row vector) of FFT_pulse_conj_vDSPz to the header
+FFT_pulse_conj_vDSPz_flattened = [ ...
+    real(FFT_pulse_conj_vDSPz) imag(FFT_pulse_conj_vDSPz) ...
+    ];
+csvwrite(strcat(osxSrcDir, 'FFT_pulse_conj_vDSPz_flattened.h'), ...
+    FFT_pulse_conj_vDSPz_flattened);
 
 fft_corr = zeros(size(s_r) - [0 M]);
 rx_pad = [zeros(size(pulse)) s_r(1:M)];
