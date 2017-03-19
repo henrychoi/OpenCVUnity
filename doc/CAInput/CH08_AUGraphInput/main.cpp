@@ -1,7 +1,8 @@
 #include <stdio.h>
 #include <AudioToolbox/AudioToolbox.h>
 #include <Accelerate/Accelerate.h>
-#include "CARingBuffer.h"
+#include "llsMP.h"
+#include "llsQ.h"
 
 #pragma mark - utility functions -
 
@@ -25,16 +26,18 @@ static void CheckError(OSStatus error, const char *operation)
     exit(1);
 }
 
-typedef struct MyAUGraphPlayer
+typedef struct MyMic
 {
 	AudioStreamBasicDescription streamFormat;
     AudioUnit inputUnit;
 	AudioBufferList *inputBuffer;
     FILE* t_csv, *x_csv, *f_csv, *c_csv;
-    float* padded_x;
+    struct llsMP mpool;
+    struct llsQ padded_xQ;
     int8_t Eblock, iBlock;
-} MyAUGraphPlayer;
-MyAUGraphPlayer gPlayer = { .iBlock = -1 }
+    bool firstBlock;
+} MyMic;
+MyMic gPlayer = { .firstBlock = true }
 , *player = &gPlayer;
 
 #define LOG2M 10
@@ -42,9 +45,21 @@ MyAUGraphPlayer gPlayer = { .iBlock = -1 }
 #define LOG2_HALFM (LOG2M - 1)
 #define LOG2_2M (LOG2M + 1)
 
+// The matched filter from Matlab
 float FFT_pulse_conj_vDSPz_flattened[1<<LOG2_2M] __attribute__((aligned(16)))
 = {
 #include "FFT_pulse_conj_vDSPz_flattened.h"
+};
+
+struct SampleBlock {
+    UInt64 mHostTime;//The timestamp for these frames
+    //UInt64 mWordClockTime //don't bother; always zero
+
+    //I can calculate the time of the 1st sample with this just as well
+    uint32_t iBlock;
+    UInt32 nFrames;
+    //float mRateScalar; //had 4 bytes left, so record the coarse version of scalar
+    float sample[1<<LOG2_2M];
 };
 
 static OSStatus InputRenderProc(void *inRefCon,
@@ -54,24 +69,34 @@ static OSStatus InputRenderProc(void *inRefCon,
 						 UInt32 inNumberFrames,
 						 AudioBufferList * ioData)
 {
-    if (player->iBlock < 0) { // The 1st block seems to have a pop sound for some reason
-        player->iBlock++;
+    if (player->firstBlock) { // The 1st block seems to have a pop sound,
+        // at least on my iPhone 6s.  Throw it away.  There will be plenty
+        // more blocks.
+        player->firstBlock = false;
         return noErr;
     }
     
-    //I only care about channel 0; copy out straight to the padded time
-    //series so I can FFT
-    player->inputBuffer->mBuffers[0].mData = (void*)
-        (player->padded_x + (inNumberFrames * (2 * player->iBlock + 1)));
+    //I only care about channel 0 (Q: is that L or R?  I think L); copy it
+    //out straight to the padded time series so I can FFT
+    struct SampleBlock* block = (struct SampleBlock*)llsMP_get(&player->mpool);
+    if (!block) {
+        fprintf(stderr, "Memory pool exhausted\n");
+        return errno;
+    }
+    player->inputBuffer->mBuffers[0].mData = (void*)(&block->sample[1<<LOG2M]);
 
     CheckError(AudioUnitRender(player->inputUnit, ioActionFlags,
                             inTimeStamp, inBusNumber, inNumberFrames,
 							player->inputBuffer),
                "AudioUnitRender failed");
-    
-    fprintf(player->t_csv, "%llu, %llu, %f, %u\n", // record the timestamps
-            inTimeStamp->mHostTime, inTimeStamp->mWordClockTime,
-            inTimeStamp->mRateScalar, inNumberFrames);
+
+    block->iBlock = player->iBlock;
+    block->mHostTime = inTimeStamp->mHostTime;
+    block->nFrames = inNumberFrames;
+    if (!llsQ_push(&player->padded_xQ, block)) {
+        fprintf(stderr, "llsQ_push failed\n");
+        return errno;
+    }
     if (++player->iBlock >= player->Eblock) {
         CheckError(AudioOutputUnitStop(player->inputUnit)
                    , "AudioOutputUnitStop");
@@ -103,6 +128,8 @@ static void die() {
 }
 
 int main (int argc, char* const argv[]) {
+    uint32_t k;
+
     int longIndex = 0
         , opt = getopt_long( argc, argv, optString, longOpts, &longIndex );
     while( opt != -1 ) {
@@ -149,7 +176,7 @@ int main (int argc, char* const argv[]) {
     
     AudioComponent comp = AudioComponentFindNext(NULL, &inputcd);
     if (comp == NULL) {
-        printf ("can't get output unit");
+        fprintf (stderr, "can't get output unit");
         exit (-1);
     }
     
@@ -253,7 +280,7 @@ int main (int argc, char* const argv[]) {
     /* allocate some buffers to hold samples between input and output callbacks
      (this part largely copied from CAPlayThrough) */
     //Get the size of the IO buffer(s)
-    UInt32 bufferSizeFrames = 1024;
+    UInt32 bufferSizeFrames = 1<<LOG2M;
     propertySize = sizeof(UInt32);
     CheckError(AudioUnitSetProperty(player->inputUnit,
                                     kAudioDevicePropertyBufferFrameSize,
@@ -270,14 +297,43 @@ int main (int argc, char* const argv[]) {
                                      &bufferSizeFrames,
                                      &propertySize),
                 "Couldn't get buffer frame size from input unit");
-    if (bufferSizeFrames != 1024) {
+    if (bufferSizeFrames != 1<<LOG2M) {
         fprintf(stderr, "bufferSizeFrames change didn't stick");
         exit(1);
     }
     
     UInt32 bufferSizeBytes = bufferSizeFrames * sizeof(Float32);
-    //The time series data for channel 0 should wind up here.
-    player->padded_x = (float*)calloc(2 * player->Eblock, bufferSizeBytes);
+    // Memory pool to hold the padded x
+    if (!llsMP_alloc(&player->mpool
+                     , 3 // capacity
+                     , sizeof(struct SampleBlock) // memsize
+                     , 16 // alignment: recommended by vDSP programming guide
+                     , 1)//memset zero, since this pool is used for zero padding
+        ) {
+        fprintf (stderr, "Can't allocate zero padded memory pool");
+        exit (errno);
+    }
+    
+#undef UNIT_TEST_LLSMP
+#ifdef UNIT_TEST_LLSMP
+    for (k=0; k < 3; ++k) {
+        struct SampleBlock* block = (struct SampleBlock*)llsMP_get(&player->mpool);
+        if (!block) {
+            fprintf(stderr, "Memory pool exhausted\n");
+            return errno;
+        }
+        float* x = block->sample;
+        for(uint32_t j=0; j < (1<<LOG2_2M); ++j)
+            fprintf(player->x_csv, "%f\n", *x++);
+    }
+    return noErr;
+#endif
+    
+    if (!llsQ_alloc(&player->padded_xQ, 1)) {
+        fprintf (stderr, "Can't allocate memory Q");
+        exit (errno);
+    }
+
     // I think the CoreAudio book is wrong about the buffer size in case of
     // interleaved format.  Just supporting the non-interleaved case until I
     // understand the interleaved format
@@ -299,6 +355,8 @@ int main (int argc, char* const argv[]) {
     for(i=1; i< player->inputBuffer->mNumberBuffers; i++) {
         player->inputBuffer->mBuffers[i].mNumberChannels = 1;
         player->inputBuffer->mBuffers[i].mDataByteSize = bufferSizeBytes;
+        // I won't even look at the other channels, but the Render method
+        // still wants some place to copy the samples to
         player->inputBuffer->mBuffers[i].mData = malloc(bufferSizeBytes);
     }
     
@@ -327,18 +385,19 @@ int main (int argc, char* const argv[]) {
     //zero pad, I need double this amount.  For M=1024, I will eat up 16 KB for these
     //temporary vars, which would not do on an MCU.
     float creal[1<<LOG2M] __attribute__((aligned(16))) //input/output buffer
-    , cimag[1<<LOG2M] __attribute__((aligned(16)))
-    , treal[1<<LOG2M] __attribute__((aligned(16))) //temporary scratch pad
-    , timag[1<<LOG2M] __attribute__((aligned(16)))
+        , cimag[1<<LOG2M] __attribute__((aligned(16)))
+        , ftemp[1<<LOG2_2M] __attribute__((aligned(16))) //temporary scratch pad
+        , overlap_save[1<<LOG2M] __attribute__((aligned(16))) //final correlation
     ;
+    memset(overlap_save, 0, sizeof(overlap_save));
     COMPLEX_SPLIT splitc = { .realp = creal, .imagp = cimag }
-    , splitt = { .realp = treal, .imagp = timag }
-    , split_filter = { .realp = FFT_pulse_conj_vDSPz_flattened
-        , .imagp = FFT_pulse_conj_vDSPz_flattened + (1<<LOG2M) }
+        , split_temp = { .realp = ftemp, .imagp = &ftemp[1<<LOG2M] }
+        , split_filter = { .realp = FFT_pulse_conj_vDSPz_flattened
+            , .imagp = FFT_pulse_conj_vDSPz_flattened + (1<<LOG2M) }
     ;
 #if 0
     // Write the filter coefficients for sanity check
-    for(UInt32 k=0; k < (1<<LOG2M); ++k) { // Output to CSV for Matlab viewing
+    for(k=0; k < (1<<LOG2M); ++k) { // Output to CSV for Matlab viewing
         fprintf(player->f_csv, "%f,%f\n", split_filter.realp[k], split_filter.imagp[k]);
     }
 #endif
@@ -346,21 +405,29 @@ int main (int argc, char* const argv[]) {
     float FFT_filter_nyq = *split_filter.imagp; *split_filter.imagp = 0;
 
     for (int8_t iBlock = 0; iBlock < player->Eblock; ) {
-        if (iBlock >= player->iBlock) {
+        struct SampleBlock* block;
+        if (!llsQ_pop(&player->padded_xQ, (void**)&block)) {
             usleep(1000);
             continue;
         }
         // Have a new block to process
-        float* padded_x = player->padded_x + 2 * bufferSizeFrames * iBlock
-            , *x = padded_x;
+        fprintf(player->t_csv, "%u, %llu\n", // record the timestamps
+                block->iBlock, block->mHostTime);
 
-        for(UInt32 k=0; k < 2 * bufferSizeFrames; ++k)
+        for(float* x = &block->sample[1<<LOG2M], k=0; k < (1<<LOG2M); ++k)
             fprintf(player->x_csv, "%f\n", *x++);
 
-        vDSP_ctoz((COMPLEX*)padded_x, 2, &splitc, 1, 1<<LOG2M);
+        vDSP_ctoz((COMPLEX*)block->sample, 2, &splitc, 1, 1<<LOG2M);
+
+        // Copied out the sample, so I can return
+        if (!llsMP_return(&player->mpool, block)) {// return the memory to mpool
+            fprintf(stderr, "llsMP_return failed");
+            exit(errno);
+        }
         
+        // Rest of the calculation can be done with stack
         static FFTSetup fftSetup = vDSP_create_fftsetup(LOG2_2M, kFFTRadix2);
-        vDSP_fft_zript(fftSetup, &splitc, 1, &splitt, LOG2_2M, FFT_FORWARD);
+        vDSP_fft_zript(fftSetup, &splitc, 1, &split_temp, LOG2_2M, FFT_FORWARD);
         // splitc now has FFT(x)--but in vDSP packed real format (only +f spectrum)
         // The FFT(x)[M], which is purely real, is in the imag(FFT(x)[0].  The same
         // goes for split_filter.  I must save those real values and set the
@@ -374,20 +441,30 @@ int main (int argc, char* const argv[]) {
         // Restore the Nyquist frequency portion, which is pure real
         *splitc.imagp = FFT_c_nyq * FFT_filter_nyq; //Restore the Nyquist frequency portion
 #endif
-        for(UInt32 k=0; k < (1<<LOG2M); ++k) { // Output to CSV for Matlab viewing
+        for(k=0; k < (1<<LOG2M); ++k) { // Output to CSV for Matlab viewing
             fprintf(player->f_csv, "%f,%f\n", splitc.realp[k], splitc.imagp[k]);
         }
-        vDSP_fft_zript(fftSetup, &splitc, 1, &splitt, LOG2_2M, FFT_INVERSE);
+        vDSP_fft_zript(fftSetup, &splitc, 1, &split_temp, LOG2_2M, FFT_INVERSE);
         //vDSP_fft_zrip(fftSetup, &splitc, 1, LOG2_2M, FFT_INVERSE);
-        vDSP_ztoc(&splitc, 1, (COMPLEX*)padded_x, 2, 1<<LOG2M);// Go back to real space
-        //padded_x[0] = 1E9; //debug the line marker
-        for(UInt32 k=0; k < (1<<LOG2_2M); ++k) { // Output to CSV for Matlab viewing
-            fprintf(player->c_csv, "%f\n", padded_x[k]);
-        }
         
-        iBlock++;
+        // Go back to real space, but I must not write back into the zero
+        // padded sample buffer: this will ruin zero pading!
+        vDSP_ztoc(&splitc, 1, (COMPLEX*)ftemp, 2, 1<<LOG2M);
+        
+        //Correlation to output: overlap_save + ftemp[0:M-1];
+        vDSP_vadd(ftemp, 1, overlap_save, 1, ftemp, 1, 1<<LOG2M);
+        
+        //Correlation to save for next round: overlap_save = ftemp[M:2M-1]
+        memcpy(overlap_save, &ftemp[1<<LOG2M], sizeof(overlap_save));
+        
+        //padded_x[0] = 1E9; //debug the line marker
+        for(k=0; k < (1<<LOG2M); ++k) { // Output correlation to CSV for Matlab viewing
+            fprintf(player->c_csv, "%f\n", ftemp[k]);
+        }
+        ++iBlock;
     }
 cleanup:
+    llsMP_free(&player->mpool);
     fclose(player->c_csv);
     fclose(player->t_csv);
     fclose(player->x_csv);

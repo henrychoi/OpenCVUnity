@@ -19,10 +19,10 @@ x = csvread(strcat(CAoutputDir, 'CA_x.csv'));
 % block-by-block inv(FFT(x) * FFT(filter)) from CA
 f = csvread(strcat(CAoutputDir, 'CA_f.csv'));% Filter used by CA
 c = csvread(strcat(CAoutputDir, 'CA_c.csv'));% block-by-block correlation
-N = 0.5 * length(x);
+N = length(x);
 
 figure(1); clf;
-subplot(311); plot(x);
+subplot(311); plot(x); %semilogy(abs(x));
 
 if false % Check matched filter
     %FFT_pulse_conj_CA = zeros(size(FFT_pulse_conj));
@@ -58,11 +58,12 @@ host_per_s  = (t(end,1) - t(1,1)) * (Fs / (2*M));
 % What padded_x's half spectrum should be
 
 % what block-by-block fast correlation result should be
-corr_true = zeros(2*N,1);
+corr_true = zeros(N,1);
+overlap_save = zeros(M,1);
 FFT_true = zeros(N,1);
 
 for i=0:M:(N-M)
-    rx_pad = x((1:2*M) + 2*i); % 0 padded x length: 2M
+    rx_pad = [zeros(M,1); x((1:M) + i)];
 
     % fast correlate: iFFT(fft(rx_pad) .* FFT_pulse_conj)
     fft_pad = fft(rx_pad);
@@ -76,7 +77,8 @@ for i=0:M:(N-M)
     end
     fcorr = ifft(fft_mul);
     
-    corr_true((1:(2*M)) + 2*i) = fcorr;
+    corr_true((1:M) + i) = overlap_save + fcorr(1:M);
+    overlap_save = fcorr((1:M) + M); % save the partial for next round
 end
 corr_true = real(corr_true);%corr should already be real
 

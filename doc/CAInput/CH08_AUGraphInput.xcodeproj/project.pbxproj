@@ -14,6 +14,8 @@
 		01B17AE114A510E1000E5E07 /* AudioUnit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 01B17ADF14A510E1000E5E07 /* AudioUnit.framework */; };
 		01B17AED14A512E6000E5E07 /* CARingBuffer.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 01B17AEB14A512E6000E5E07 /* CARingBuffer.cpp */; };
 		01B17AF114A51437000E5E07 /* CoreAudio.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 01B17AF014A51437000E5E07 /* CoreAudio.framework */; };
+		07082EBC1E7EF35A00C8B9DB /* llsMP.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 07082EB81E7EF35A00C8B9DB /* llsMP.cpp */; };
+		07082EBD1E7EF35A00C8B9DB /* llsQ.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 07082EBA1E7EF35A00C8B9DB /* llsQ.cpp */; };
 		07E024EB1E77C16F007EEF95 /* Accelerate.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 07E024EA1E77C16F007EEF95 /* Accelerate.framework */; };
 /* End PBXBuildFile section */
 
@@ -40,6 +42,10 @@
 		01B17AEB14A512E6000E5E07 /* CARingBuffer.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = CARingBuffer.cpp; path = CoreAudio/PublicUtility/CARingBuffer.cpp; sourceTree = SOURCE_ROOT; };
 		01B17AEC14A512E6000E5E07 /* CARingBuffer.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = CARingBuffer.h; path = CoreAudio/PublicUtility/CARingBuffer.h; sourceTree = SOURCE_ROOT; };
 		01B17AF014A51437000E5E07 /* CoreAudio.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreAudio.framework; path = SDKs/MacOSX10.6.sdk/System/Library/Frameworks/CoreAudio.framework; sourceTree = DEVELOPER_DIR; };
+		07082EB81E7EF35A00C8B9DB /* llsMP.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = llsMP.cpp; path = rtds/llsMP.cpp; sourceTree = "<group>"; };
+		07082EB91E7EF35A00C8B9DB /* llsMP.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = llsMP.h; path = rtds/llsMP.h; sourceTree = "<group>"; };
+		07082EBA1E7EF35A00C8B9DB /* llsQ.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = llsQ.cpp; path = rtds/llsQ.cpp; sourceTree = "<group>"; };
+		07082EBB1E7EF35A00C8B9DB /* llsQ.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = llsQ.h; path = rtds/llsQ.h; sourceTree = "<group>"; };
 		07E024EA1E77C16F007EEF95 /* Accelerate.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Accelerate.framework; path = System/Library/Frameworks/Accelerate.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
@@ -62,6 +68,7 @@
 		01B17AC314A510A6000E5E07 = {
 			isa = PBXGroup;
 			children = (
+				07082EB71E7EF33D00C8B9DB /* rtds */,
 				01B17AD414A510A6000E5E07 /* CH08_AUGraphInput */,
 				01B17AE214A510FE000E5E07 /* CA Public Utility */,
 				01B17AD114A510A6000E5E07 /* Frameworks */,
@@ -105,6 +112,17 @@
 				01B17AEC14A512E6000E5E07 /* CARingBuffer.h */,
 			);
 			name = "CA Public Utility";
+			sourceTree = "<group>";
+		};
+		07082EB71E7EF33D00C8B9DB /* rtds */ = {
+			isa = PBXGroup;
+			children = (
+				07082EB81E7EF35A00C8B9DB /* llsMP.cpp */,
+				07082EB91E7EF35A00C8B9DB /* llsMP.h */,
+				07082EBA1E7EF35A00C8B9DB /* llsQ.cpp */,
+				07082EBB1E7EF35A00C8B9DB /* llsQ.h */,
+			);
+			name = rtds;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -159,6 +177,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				01B17AD614A510A6000E5E07 /* main.cpp in Sources */,
+				07082EBD1E7EF35A00C8B9DB /* llsQ.cpp in Sources */,
+				07082EBC1E7EF35A00C8B9DB /* llsMP.cpp in Sources */,
 				01B17AED14A512E6000E5E07 /* CARingBuffer.cpp in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
