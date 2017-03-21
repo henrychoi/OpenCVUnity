@@ -1,11 +1,6 @@
 function matched_lfm
 %% Simulate
-tempDir = '~/Music/';
-unityDocDir = '~/github/OpenCVUnity/doc/'
-unityAssetsDir = '~/github/OpenCVUnity/Assets/'
-soundDir = strcat(unityAssetsDir, 'CubeShipsFree/Sound/');
-streamingAssetDir = strcat(unityAssetsDir, 'StreamingAssets/');
-osxSrcDir = '~/github/OpenCVUnity/doc/CAInput/CH08_AUGraphInput/';
+musicDir = '~/Music/';
 
 TRUE_DISTANCE = 7
 AMBIENT_SOUND = 1
@@ -18,8 +13,9 @@ if ROUND_TRIP, attenuation = 4; else attenuation = 2; end;
 MULTIPATH_DISTANCE = TRUE_DISTANCE + 0.02;
 Fs = 44100;
 Ts = 1/Fs;
-f0 = 50; % lowest frequency of the chirp
-b = 22000; % 23 kHz BW (use all available BW)
+% MacBook Pro fades in on the low end around 130 Hz
+f0 = 100; % lowest frequency of the chirp
+b = 21000; % 20 kHz BW (use all available BW)
 M = 2^10; % # samples to describe the original chirp (controls tau)
 N = M * 2; %Total samples I need to collect
 c = 335; % speed of sound [m/s]
@@ -102,8 +98,8 @@ end
 
 %% Write pulse to play back Unity
 silence = zeros(size(pulse));
-audiowrite(strcat(tempDir, 'lchirp.wav'), [pulse; silence]', Fs);
-audiowrite(strcat(tempDir, 'rchirp.wav'), [silence; pulse]', Fs);
+audiowrite(strcat(musicDir, 'lchirp.wav'), [pulse; silence]', Fs);
+audiowrite(strcat(musicDir, 'rchirp.wav'), [silence; pulse]', Fs);
 
 xmit = A_u * pulse; % Adjust pulse loudness
 sound(xmit, Fs);% What does the chirp sound like?
@@ -254,18 +250,9 @@ grid; axis([freq(1) freq(end) 1 1E5]);
 pulse_pad = [pulse zeros(size(pulse))];
 FFT_pulse = fft(pulse_pad);
 FFT_pulse_conj = conj(FFT_pulse);
-FFT_pulse_conj_vDSPz = FFT_pulse_conj(1:M); % Just take half
-FFT_pulse_conj_vDSPz(1) = FFT_pulse_conj(1) + 1j*FFT_pulse_conj(M+1);
-save(strcat(unityDocDir, 'FFT_pulse_conj.mat'), 'FFT_pulse_conj');
-% Using jsonlab-1.5, downloaded from Matlab file exchange
-savejson('', FFT_pulse_conj_vDSPz, ...
-    strcat(streamingAssetDir, 'FFT_pulse_conj_vDSPz.json'));
-% Write the flattened form (row vector) of FFT_pulse_conj_vDSPz to the header
-FFT_pulse_conj_vDSPz_flattened = [ ...
-    real(FFT_pulse_conj_vDSPz) imag(FFT_pulse_conj_vDSPz) ...
-    ];
-csvwrite(strcat(osxSrcDir, 'FFT_pulse_conj_vDSPz_flattened.h'), ...
-    FFT_pulse_conj_vDSPz_flattened);
+unityDocDir = '~/github/OpenCVUnity/doc/';
+fname = strcat(unityDocDir, 'FFT_pulse_conj.mat');
+save(fname);
 
 fft_corr = zeros(size(s_r) - [0 M]);
 rx_pad = [zeros(size(pulse)) s_r(1:M)];
@@ -354,7 +341,7 @@ end
 close(2);
 close(3);
 
-med_corr = medfilt1(fft_corr, 5);
+med_corr = medfilt1(fft_corr, 3);
 dCorr = fft_corr - med_corr;
 subplot(313); plot(distance(1:length(dCorr)), dCorr);
 grid;
