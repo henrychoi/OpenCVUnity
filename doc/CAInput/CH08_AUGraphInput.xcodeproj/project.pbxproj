@@ -10,12 +10,11 @@
 		01B17AD314A510A6000E5E07 /* CoreFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 01B17AD214A510A6000E5E07 /* CoreFoundation.framework */; };
 		01B17AD614A510A6000E5E07 /* main.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 01B17AD514A510A6000E5E07 /* main.cpp */; };
 		01B17AD814A510A6000E5E07 /* CH08_AUGraphInput.1 in CopyFiles */ = {isa = PBXBuildFile; fileRef = 01B17AD714A510A6000E5E07 /* CH08_AUGraphInput.1 */; };
-		01B17AE014A510E1000E5E07 /* AudioToolbox.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 01B17ADE14A510E1000E5E07 /* AudioToolbox.framework */; };
-		01B17AE114A510E1000E5E07 /* AudioUnit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 01B17ADF14A510E1000E5E07 /* AudioUnit.framework */; };
 		01B17AED14A512E6000E5E07 /* CARingBuffer.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 01B17AEB14A512E6000E5E07 /* CARingBuffer.cpp */; };
-		01B17AF114A51437000E5E07 /* CoreAudio.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 01B17AF014A51437000E5E07 /* CoreAudio.framework */; };
 		07082EBC1E7EF35A00C8B9DB /* llsMP.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 07082EB81E7EF35A00C8B9DB /* llsMP.cpp */; };
 		07082EBD1E7EF35A00C8B9DB /* llsQ.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 07082EBA1E7EF35A00C8B9DB /* llsQ.cpp */; };
+		0770946A1E9C6D050078415B /* AudioUnit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 077094691E9C6D050078415B /* AudioUnit.framework */; };
+		0770946C1E9C6E6C0078415B /* CoreAudio.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0770946B1E9C6E6C0078415B /* CoreAudio.framework */; };
 		07E024EB1E77C16F007EEF95 /* Accelerate.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 07E024EA1E77C16F007EEF95 /* Accelerate.framework */; };
 /* End PBXBuildFile section */
 
@@ -46,6 +45,8 @@
 		07082EB91E7EF35A00C8B9DB /* llsMP.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = llsMP.h; path = rtds/llsMP.h; sourceTree = "<group>"; };
 		07082EBA1E7EF35A00C8B9DB /* llsQ.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = llsQ.cpp; path = rtds/llsQ.cpp; sourceTree = "<group>"; };
 		07082EBB1E7EF35A00C8B9DB /* llsQ.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = llsQ.h; path = rtds/llsQ.h; sourceTree = "<group>"; };
+		077094691E9C6D050078415B /* AudioUnit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AudioUnit.framework; path = System/Library/Frameworks/AudioUnit.framework; sourceTree = SDKROOT; };
+		0770946B1E9C6E6C0078415B /* CoreAudio.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreAudio.framework; path = System/Library/Frameworks/CoreAudio.framework; sourceTree = SDKROOT; };
 		07E024EA1E77C16F007EEF95 /* Accelerate.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Accelerate.framework; path = System/Library/Frameworks/Accelerate.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
@@ -54,10 +55,9 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				0770946C1E9C6E6C0078415B /* CoreAudio.framework in Frameworks */,
+				0770946A1E9C6D050078415B /* AudioUnit.framework in Frameworks */,
 				07E024EB1E77C16F007EEF95 /* Accelerate.framework in Frameworks */,
-				01B17AF114A51437000E5E07 /* CoreAudio.framework in Frameworks */,
-				01B17AE014A510E1000E5E07 /* AudioToolbox.framework in Frameworks */,
-				01B17AE114A510E1000E5E07 /* AudioUnit.framework in Frameworks */,
 				01B17AD314A510A6000E5E07 /* CoreFoundation.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -87,6 +87,8 @@
 		01B17AD114A510A6000E5E07 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				0770946B1E9C6E6C0078415B /* CoreAudio.framework */,
+				077094691E9C6D050078415B /* AudioUnit.framework */,
 				07E024EA1E77C16F007EEF95 /* Accelerate.framework */,
 				01B17AF014A51437000E5E07 /* CoreAudio.framework */,
 				01B17ADE14A510E1000E5E07 /* AudioToolbox.framework */,

@@ -90,6 +90,11 @@ static OSStatus InputRenderProc(void *inRefCon,
 							player->inputBuffer),
                "AudioUnitRender failed");
 
+    float block_min, block_max;
+    vDSP_minv(&block->sample[1<<LOG2M], 1, &block_min, 1<<LOG2M);
+    vDSP_maxv(&block->sample[1<<LOG2M], 1, &block_max, 1<<LOG2M);
+    printf("min %f, max %f\n", block_min, block_max);
+
     block->iBlock = player->iBlock;
     block->mHostTime = inTimeStamp->mHostTime;
     block->nFrames = inNumberFrames;
@@ -313,7 +318,7 @@ int main (int argc, char* const argv[]) {
     CheckError(AudioUnitSetProperty(player->inputUnit,
                                     kAudioDevicePropertyBufferFrameSize,
                                     kAudioUnitScope_Global,
-                                    0,
+                                    outputBus,
                                     &bufferSizeFrames,
                                     propertySize),
                "Couldn't set buffer frame size to input unit");
@@ -321,7 +326,7 @@ int main (int argc, char* const argv[]) {
     CheckError (AudioUnitGetProperty(player->inputUnit,
                                      kAudioDevicePropertyBufferFrameSize,
                                      kAudioUnitScope_Global,
-                                     0,
+                                     outputBus,
                                      &bufferSizeFrames,
                                      &propertySize),
                 "Couldn't get buffer frame size from input unit");
@@ -438,7 +443,7 @@ int main (int argc, char* const argv[]) {
     //save the filter Nyquist freq response
     float FFT_filter_nyq = *split_filter.imagp; *split_filter.imagp = 0;
 
-    uint32 gBlock = 0;
+    uint32 detectedBlock = 0;
     for (uint32_t iBlock = 0; iBlock < player->Eblock; ) {
         struct SampleBlock* block;
         if (!llsQ_pop(&player->padded_xQ, (void**)&block)) {
@@ -451,7 +456,7 @@ int main (int argc, char* const argv[]) {
 
         vDSP_ctoz((COMPLEX*)block->sample, 2, &splitc, 1, 1<<LOG2M);
 
-        // Copied out the sample, so I can return
+        // Copied out the sample, so I can return the memory
         if (!llsMP_return(&player->mpool, block)) {// return the memory to mpool
             fprintf(stderr, "llsMP_return failed");
             exit(errno);
@@ -562,16 +567,16 @@ int main (int argc, char* const argv[]) {
             if (IABS(rel_corr_d2_max_idx - d2_corr_min_idx) <= 2
                 && rel_corr_d2_max > SIGNAL_THRESHOLD
                 && d2_corr_min < SIGNAL_THRESHOLD) {
-                if (!gBlock) {
+                if (!detectedBlock) {
                     detected = true;
-                    gBlock = iBlock;
+                    detectedBlock = iBlock;
                 }
             } else { //not detected
-                gBlock = 0;
+                detectedBlock = 0;
             }
 
-            if (gBlock && (iBlock - gBlock) > 2) { // purge old detection
-                gBlock = 0;
+            if (detectedBlock && (iBlock - detectedBlock) > 2) { // purge old detection
+                detectedBlock = 0;
             }
             
             fprintf(player->t_csv,// record the timestamps and putative indices

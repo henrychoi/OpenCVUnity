@@ -254,8 +254,12 @@ unityDocDir = '~/github/OpenCVUnity/doc/';
 fname = strcat(unityDocDir, 'FFT_pulse_conj.mat');
 save(fname);
 
+block_rms(1:N-M) = 0.0;
+
 fft_corr = zeros(size(s_r) - [0 M]);
 rx_pad = [zeros(size(pulse)) s_r(1:M)];
+block_rms(1:M) = max(1, 0.5*sqrt(dot(rx_pad((M+1):end), rx_pad((M+1):end)))) ...
+    * ones(1,M);
 corr = ifft(fft(rx_pad) .* FFT_pulse_conj);
 fft_corr(1:M) = corr(M + (1:M)); % Throw away the L half, save the R half
 figure(3);
@@ -263,6 +267,9 @@ subplot(414); plot(t(1:length(fft_corr)), fft_corr);
 
 for i=M:M:(N-2*M) % Feed subsequent received samples
     rx_pad((M+1):end) = s_r(i+(1:M));
+    block_rms(i+(1:M)) = max(1, 0.5*sqrt(dot(rx_pad((M+1):end), ...
+        rx_pad((M+1):end)))) ...
+        * ones(1,M);
     corr = ifft(fft(rx_pad) .* FFT_pulse_conj);
     fft_corr(i + ((-M+1):M)) = fft_corr(i + ((-M+1):M)) + corr;
     subplot(414); plot(t(1:length(fft_corr)), fft_corr);
@@ -279,6 +286,8 @@ if max(abs(err)) > 1E-9
     linkaxes(ha, 'x');
 end
 
+%block_rms = 0.5 * block_rms; % Set the threshold at half of RMS
+
 ha(4) = subplot(414); plot(t(1:length(fft_corr)), fft_corr);
 title('fast corr (overlapped)');
 %linkaxes(ha, 'x');
@@ -293,13 +302,28 @@ title('fast corr (overlapped)');
 distance = t(1:length(fft_corr)) * c;
 if ROUND_TRIP, distance = distance/2; end;
 
-figure(4)
+figure(2)
 ha4(1) = subplot(311);
-plot(distance, fft_corr); title('FFT based correlation'); grid
+plot(distance, fft_corr, distance, block_rms);
+title('FFT based correlation'); grid
 xlabel ('Target relative distance [m]'); ylabel ('Correlation');
 
 d2Corr = [0 diff(diff(fft_corr)) 0];
-subplot(312); plot(distance(1:length(d2Corr)), d2Corr);
+thresheld_d2Corr = max(-d2Corr, block_rms);
+
+subplot(312);
+plot(distance(1:length(d2Corr)), -d2Corr, ...
+    ...distance(1:length(d2Corr)), -block_rms, ...
+    distance(1:length(d2Corr)), thresheld_d2Corr);
+grid;
+
+med_corr = medfilt1(fft_corr, 3);
+dCorr = fft_corr - med_corr;
+thresheld_dCorr = max(dCorr, 0.5*block_rms);
+subplot(313);
+plot(distance(1:length(dCorr)), dCorr, ...
+    ...distance(1:length(dCorr)), 0.5*block_rms, ...
+    distance(1:length(dCorr)), thresheld_dCorr);
 grid;
 
 % What does the smoothed signal look?
@@ -338,17 +362,12 @@ if HIGH_PASS % The filtered version
     figure(4); subplot(313); plot(distance, s_filt); title('FFT correlation filtered');
     grid
 end
-close(2);
+%close(2);
 close(3);
 
-med_corr = medfilt1(fft_corr, 3);
-dCorr = fft_corr - med_corr;
-subplot(313); plot(distance(1:length(dCorr)), dCorr);
-grid;
 
-
-[~, k_dCor] = max(dCorr);
-[~, k_d2cor] = min(d2Corr);
+[~, k_dCor] = max(thresheld_dCorr);
+[~, k_d2cor] = max(thresheld_d2Corr);
 fprintf('diff of estimate = %d\n', k_dCor - k_d2cor);
 d_est = Ts * k_dCor * c;
 if abs(k_dCor - k_d2cor) <= 2
@@ -374,9 +393,14 @@ xlabel('[Hz]');
 
 N = M * floor(length(heard) / M);
 [s_ambient, Fs_a] = audioread('singing.wav', [1 N]);
-s_r = heard(1:N,1)' + s_ambient(1:N)';
+s_r = heard(1:N,1)' + s_ambient(1:N)'; % received = signal + noise + ambient
+
+block_rms(1:N-M) = 0.0;
+
 fft_corr = zeros(size(s_r) - [0 M]);
 rx_pad = [zeros(size(pulse)) s_r(1:M)];
+block_rms(1:M) = max(1, 0.5*sqrt(dot(rx_pad((M+1):end), rx_pad((M+1):end)))) ...
+    * ones(1,M);
 corr = ifft(fft(rx_pad) .* FFT_pulse_conj);
 fft_corr(1:M) = corr(M + (1:M)); % Throw away the L half, save the R half
 figure(3);
@@ -384,6 +408,9 @@ subplot(414); plot(t(1:length(fft_corr)), fft_corr);
 
 for i=M:M:(N-2*M) % Feed subsequent received samples
     rx_pad((M+1):end) = s_r(i+(1:M));
+    block_rms(i+(1:M)) = max(1, 0.5*sqrt(dot(rx_pad((M+1):end), ...
+        rx_pad((M+1):end)))) ...
+        * ones(1,M);
     corr = ifft(fft(rx_pad) .* FFT_pulse_conj);
     fft_corr(i + ((-M+1):M)) = fft_corr(i + ((-M+1):M)) + corr;
     subplot(414); plot(t(1:length(fft_corr)), fft_corr);
@@ -393,26 +420,36 @@ if isempty(i), i = M; else i = i + M; end
 rx_pad((M+1):end) = s_r(i+(1:M));
 corr = ifft(fft(rx_pad) .* FFT_pulse_conj);
 fft_corr(i+((-M+1):0)) = fft_corr(i+ ((-M+1):0)) + corr(1:M);
-
 close(3);
 
 distance = t(1:length(fft_corr)) * c;
 figure(4); clf
 ha4(1) = subplot(311);
-plot(distance, fft_corr); title('FFT based correlation'); grid
+plot(distance, fft_corr, distance, block_rms);
+title('FFT based correlation and rx signal power'); grid
 xlabel ('Target relative distance [m]'); ylabel ('Correlation');
 
 d2Corr = [0 diff(diff(fft_corr)) 0];
-subplot(312); plot(distance(1:length(d2Corr)), d2Corr);
-grid;
+thresheld_d2Corr = max(-d2Corr, block_rms);
+
+subplot(312);
+plot(distance(1:length(d2Corr)), -d2Corr, ...
+    ... distance(1:length(d2Corr)), -block_rms, ...
+    distance(1:length(d2Corr)), thresheld_d2Corr);
+title('THRESHOLD(d^2(corr)/dt)'); grid;
 
 med_corr = medfilt1(fft_corr, 5);
 dCorr = fft_corr - med_corr;
-subplot(313); plot(distance(1:length(dCorr)), dCorr);
-grid;
+thresheld_dCorr = max(dCorr, 0.5*block_rms);
 
-[~, k_dCor] = max(dCorr);
-[~, k_d2cor] = min(d2Corr);
+subplot(313);
+plot(distance(1:length(dCorr)), dCorr, ...
+    ... distance(1:length(d2Corr)), 0.5*block_rms, ...
+    distance(1:length(d2Corr)), thresheld_dCorr);
+title('THRESHOLD(corr - med5(corr))'); grid;
+
+[~, k_dCor] = max(thresheld_d2Corr);
+[~, k_d2cor] = max(thresheld_dCorr);
 fprintf('diff of estimate = %d\n', k_dCor - k_d2cor);
 d_est = Ts * k_dCor * c;
 if abs(k_dCor - k_d2cor) <= 2
